@@ -3,6 +3,7 @@ name = "opcrew"
 version = "0.1.0"
 edition = "2024"
 description = "AI Agent Squad Creator — dynamic agent orchestration for devops and sysadmin problem solving"
+license = "Apache-2.0"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
