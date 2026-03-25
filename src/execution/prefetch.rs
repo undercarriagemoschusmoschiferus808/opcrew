@@ -38,12 +38,13 @@ fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(
 
     // ─── Docker context ───
     if lower.contains("container") || lower.contains("docker") || lower.contains("restart") {
-        commands.push(("docker_ps", "docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}'".into()));
+        commands.push(("docker_ps", "docker ps -a".into()));
 
         // Extract container name from problem
         if let Some(name) = extract_name_from_problem(&lower, &["container", "docker"]) {
             commands.push(("container_logs", format!("docker logs {name} --tail 50")));
-            commands.push(("container_inspect", format!("docker inspect {name} --format '{{{{json .State}}}}'")));
+            commands.push(("container_inspect", format!("docker inspect {name}")));
+            commands.push(("container_events", format!("docker events --since 5m --until 0s --filter container={name} --format json")));
         }
     }
 
