@@ -46,6 +46,10 @@ impl MemoryStore {
         let conn = self.conn.lock().unwrap();
         conn.execute_batch(MIGRATIONS)
             .map_err(|e| AgentError::MemoryError(format!("Migrations: {e}")))?;
+
+        // Safe column additions (ignore if already exists)
+        let _ = conn.execute("ALTER TABLE infra_services ADD COLUMN execution_context TEXT NOT NULL DEFAULT '{}'", []);
+
         Ok(())
     }
 
