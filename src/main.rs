@@ -327,6 +327,178 @@ async fn run_pipeline(
     let cancellation = &ctx.cancellation;
     let metrics = &ctx.metrics;
     let memory = &ctx.memory;
+
+    // =========================================================
+    // TURBO: Pre-fetch + Triage (before any LLM call)
+    // =========================================================
+    if !cli.dry_run {
+        use crate::execution::prefetch::prefetch_system_context;
+        use crate::execution::triage::triage;
+        use crate::tools::traits::Tool;
+
+        // Load infra graph for context-aware pre-fetch
+        let infra_graph = if let Some(mem) = memory.as_ref() {
+            let conn = mem.connection().lock().unwrap();
+            crate::infra::graph::InfraGraph::load_from_db(&conn).ok().flatten()
+        } else {
+            None
+        };
+
+        // Determine target
+        let target = cli.target.as_ref()
+            .and_then(|t| crate::tools::target::TargetHost::parse_target(t))
+            .unwrap_or_default();
+
+        // Phase T1: Pre-fetch system context
+        if !cli.json {
+            eprintln!("  {} Collecting system context...", colored::Colorize::dimmed("⚡"));
+        }
+        let system_context = prefetch_system_context(problem, &target, infra_graph.as_ref()).await;
+        if !cli.json {
+            eprintln!("  {} {} data points in {}ms",
+                colored::Colorize::green("⚡"),
+                system_context.data.len(),
+                system_context.fetch_duration_ms);
+        }
+
+        // Phase T2: Triage — single LLM call with all context
+        if !system_context.data.is_empty() {
+            if !cli.json {
+                eprintln!("  {} Analyzing...", colored::Colorize::dimmed("⚡"));
+            }
+            match triage(client, problem, &system_context).await {
+                Ok(result) => {
+                    if !cli.json {
+                        eprintln!("  {} Triage: confidence {:.0}% — {}",
+                            if result.is_confident() { colored::Colorize::green("⚡") } else { colored::Colorize::yellow("⚡") },
+                            result.confidence * 100.0,
+                            &result.root_cause[..result.root_cause.len().min(80)]);
+                    }
+
+                    // Phase T3: If confident, execute fix directly
+                    if result.is_confident() && cli.auto_approve {
+                        tracing::info!(confidence = result.confidence, "Turbo: applying fix directly");
+
+                        let shell = crate::tools::shell::ShellTool::new(target.clone());
+                        let mut all_ok = true;
+
+                        for cmd in &result.fix_commands {
+                            if crate::tools::shell::ShellTool::has_composition(cmd) {
+                                tracing::warn!(cmd = %cmd, "Skipping: shell composition");
+                                continue;
+                            }
+
+                            // Guardian review
+                            let tool_params = crate::tools::traits::ToolParams {
+                                tool_name: "shell".into(),
+                                action: "run".into(),
+                                args: [("command".into(), cmd.clone())].into(),
+                            };
+                            let decision = guardian.review(&tool_params, "Turbo Fix", "turbo", &result.diagnostic).await?;
+
+                            match decision {
+                                crate::safety::guardian::ReviewDecision::Approved { .. } => {
+                                    metrics.record_guardian_approval();
+                                    if !cli.json {
+                                        eprintln!("  {} {}",
+                                            colored::Colorize::cyan("→"),
+                                            colored::Colorize::dimmed(cmd.as_str()));
+                                    }
+                                    let exec_result = shell.execute(&tool_params, std::time::Duration::from_secs(30)).await;
+                                    match exec_result {
+                                        Ok(r) if r.success => {
+                                            tracing::info!(cmd = %cmd, "Fix command succeeded");
+                                        }
+                                        Ok(r) => {
+                                            tracing::warn!(cmd = %cmd, error = ?r.error, "Fix command failed");
+                                            all_ok = false;
+                                        }
+                                        Err(e) => {
+                                            tracing::warn!(cmd = %cmd, error = %e, "Fix command error");
+                                            all_ok = false;
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    metrics.record_guardian_block();
+                                    tracing::warn!(cmd = %cmd, "Guardian blocked fix command");
+                                    all_ok = false;
+                                }
+                            }
+                        }
+
+                        // Phase T4: Verify
+                        let mut verified = false;
+                        for cmd in &result.verify_commands {
+                            if crate::tools::shell::ShellTool::has_composition(cmd) { continue; }
+                            let params = crate::tools::traits::ToolParams {
+                                tool_name: "shell".into(),
+                                action: "run".into(),
+                                args: [("command".into(), cmd.clone())].into(),
+                            };
+                            if let Ok(r) = shell.execute(&params, std::time::Duration::from_secs(15)).await
+                                && r.success {
+                                    if !cli.json {
+                                        eprintln!("  {} Verify: {}",
+                                            colored::Colorize::green("✓"),
+                                            &r.output[..r.output.len().min(100)].trim());
+                                    }
+                                    verified = true;
+                                }
+                        }
+
+                        // Report
+                        let report = format!(
+                            "## Turbo Diagnostic\n\n\
+                             **Root cause**: {}\n\n\
+                             **Diagnostic**: {}\n\n\
+                             **Fix applied**: {}\n\n\
+                             **Verified**: {}",
+                            result.root_cause,
+                            result.diagnostic,
+                            result.fix_commands.join(", "),
+                            if verified { "Yes" } else { "Partial" },
+                        );
+                        println!("{}", formatter.format_final_result(&report, metrics.total_tokens()));
+
+                        // Save to memory
+                        if let Some(mem) = memory.as_ref() {
+                            let _ = mem.save_finding(&FindingRecord {
+                                id: Uuid::new_v4().to_string(),
+                                session_id: session_id.to_string(),
+                                agent_role: "Turbo".into(),
+                                finding: result.diagnostic.clone(),
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            });
+                            if all_ok && verified {
+                                let _ = mem.save_solution(&SolutionRecord {
+                                    id: Uuid::new_v4().to_string(),
+                                    session_id: session_id.to_string(),
+                                    problem_hash: p_hash.to_string(),
+                                    solution: result.diagnostic,
+                                    commands: result.fix_commands.join("; "),
+                                    worked: true,
+                                    failure_reason: None,
+                                    approach_summary: result.root_cause,
+                                    created_at: chrono::Utc::now().to_rfc3339(),
+                                });
+                            }
+                        }
+
+                        return Ok(());
+                    }
+
+                    // If not confident enough, fall through to full pipeline
+                    // but the triage context will be available
+                    tracing::info!("Triage confidence too low, falling through to full pipeline");
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "Triage failed, falling through to full pipeline");
+                }
+            }
+        }
+    }
+
     // =========================================================
     // Phase 0: CEO clarity assessment
     // =========================================================
