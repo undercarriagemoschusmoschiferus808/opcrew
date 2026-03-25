@@ -12,6 +12,7 @@ use crate::execution::budget::TokenBudget;
 use crate::safety::guardian::{GuardianAgent, ReviewDecision};
 use crate::safety::secrets::SecretMasker;
 use crate::tools::registry::ToolRegistry;
+use crate::observability::metrics::Metrics;
 use crate::tools::traits::ToolParams;
 
 /// A specialist agent that executes tasks autonomously using tools.
@@ -23,6 +24,7 @@ pub struct SpecialistAgent {
     guardian: Arc<GuardianAgent>,
     budget: Arc<TokenBudget>,
     masker: Arc<SecretMasker>,
+    metrics: Arc<Metrics>,
 }
 
 impl SpecialistAgent {
@@ -33,6 +35,7 @@ impl SpecialistAgent {
         guardian: Arc<GuardianAgent>,
         budget: Arc<TokenBudget>,
         masker: Arc<SecretMasker>,
+        metrics: Arc<Metrics>,
     ) -> Self {
         budget.register_agent(&config.id.to_string());
         Self {
@@ -42,6 +45,7 @@ impl SpecialistAgent {
             guardian,
             budget,
             masker,
+            metrics,
         }
     }
 
@@ -122,6 +126,7 @@ impl SpecialistAgent {
 
                 match decision {
                     ReviewDecision::Approved { .. } => {
+                        self.metrics.record_guardian_approval();
                         // Execute the tool
                         match self.tools.get(&tool_call.tool_name) {
                             Ok(tool) => {
@@ -153,6 +158,7 @@ impl SpecialistAgent {
                         }
                     }
                     ReviewDecision::Blocked { reason } => {
+                        self.metrics.record_guardian_block();
                         conversation.push(ChatMessage {
                             role: MessageRole::User,
                             content: format!(
@@ -162,6 +168,7 @@ impl SpecialistAgent {
                         });
                     }
                     ReviewDecision::NeedsUserApproval { reason, .. } => {
+                        self.metrics.record_guardian_prompt();
                         conversation.push(ChatMessage {
                             role: MessageRole::User,
                             content: format!(

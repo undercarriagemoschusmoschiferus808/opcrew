@@ -39,6 +39,13 @@ pub struct PlannedTask {
     /// Link to a hypothesis ID (e.g., "H1: upstream server is down")
     #[serde(default)]
     pub hypothesis: Option<String>,
+    /// Task type: "diagnose", "fix", or "verify"
+    #[serde(default = "default_task_type")]
+    pub task_type: String,
+}
+
+fn default_task_type() -> String {
+    "diagnose".to_string()
 }
 
 fn default_priority() -> u8 {
@@ -128,6 +135,7 @@ mod tests {
                 depends_on: vec![],
                 priority: 1,
                 hypothesis: Some("H1: upstream server is down".into()),
+                task_type: "diagnose".into(),
             }],
             synthesis_strategy: "Combine findings into diagnosis".into(),
         };

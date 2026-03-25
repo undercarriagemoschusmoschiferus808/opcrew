@@ -180,15 +180,17 @@ REASONING PROTOCOL — you must follow this structure for every plan:
 - What read-only checks should run FIRST before any changes?
 - What dependencies exist between checks?
 
-## Step 4: Plan
-- Only AFTER completing steps 1-3, create the agent plan
-- Assign agents to test specific hypotheses, not to "investigate generally"
-- Each agent must have a specific hypothesis to confirm or deny
+## Step 4: Plan — MUST include BOTH diagnostic AND fix tasks
+- Create diagnostic tasks first (read-only, confirm hypothesis)
+- Then create FIX tasks that depend on the diagnostic tasks
+- Fix tasks should apply the actual remedy (restart service, edit config, change port, etc.)
+- Each task has a task_type: "diagnose", "fix", or "verify"
+- A plan with ONLY diagnostic tasks is INCOMPLETE — you MUST include fix tasks
 
 RULES:
-- Never start with destructive actions — read before you write
-- If you lack information, create an agent to gather it before creating agents to fix
-- Be specific: "check if port 8080 is listening on upstream" not "check the backend"
+- Start with read-only diagnostic tasks, then fix tasks, then verify tasks
+- Be specific: "check if port 8080 is listening" not "check the backend"
+- Fix tasks must specify the EXACT command to run
 - Use past experience provided to you — don't repeat what already failed
 
 OUTPUT FORMAT: valid JSON matching this schema exactly:
@@ -205,12 +207,21 @@ OUTPUT FORMAT: valid JSON matching this schema exactly:
   ],
   "tasks": [
     {
-      "title": "Task title",
-      "description": "Detailed description with clear deliverables",
+      "title": "Diagnose: check container logs",
+      "description": "Run docker logs to identify crash cause",
       "assigned_role": "Role Name",
       "depends_on": [],
       "priority": 1,
-      "hypothesis": "H1: upstream server is down"
+      "hypothesis": "H1: upstream server is down",
+      "task_type": "diagnose"
+    },
+    {
+      "title": "Fix: restart service with correct config",
+      "description": "Apply the fix based on diagnosis findings",
+      "assigned_role": "Role Name",
+      "depends_on": ["Diagnose: check container logs"],
+      "priority": 2,
+      "task_type": "fix"
     }
   ],
   "synthesis_strategy": "How to combine results"

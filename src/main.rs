@@ -33,7 +33,7 @@ use crate::api::local::LocalClient;
 use crate::api::openai::OpenAiClient;
 use crate::api::provider::LlmProvider;
 use crate::cli::{Cli, Command};
-use crate::domain::agent::ClarityAssessment;
+use crate::domain::agent::{AgentBehavior, ClarityAssessment};
 use crate::execution::budget::TokenBudget;
 use crate::execution::runner::SquadRunner;
 use crate::infra::graph::InfraGraph;
@@ -328,7 +328,7 @@ async fn run_pipeline(
     // =========================================================
     // Phase 1: Hypothesis generation
     // =========================================================
-    let hypothesis_context = {
+    let hypothesis_report = {
         let hypothesis_agent = HypothesisAgent::new(Arc::clone(client));
 
         // Get memory context
@@ -369,14 +369,90 @@ async fn run_pipeline(
                         report.hypotheses.len(), report.estimated_complexity
                     )));
                 }
-                HypothesisAgent::format_for_ceo(&report)
+                Some(report)
             }
             Err(e) => {
                 tracing::warn!(error = %e, "Hypothesis generation failed, continuing without");
-                String::new()
+                None
             }
         }
     };
+
+    let hypothesis_context = hypothesis_report.as_ref()
+        .map(HypothesisAgent::format_for_ceo)
+        .unwrap_or_default();
+
+    let is_simple = hypothesis_report.as_ref()
+        .map(|r| r.estimated_complexity == crate::agents::hypothesis::Complexity::Simple)
+        .unwrap_or(false);
+
+    // =========================================================
+    // Fast-path for Simple problems
+    // =========================================================
+    if is_simple && !cli.dry_run
+        && let Some(report) = &hypothesis_report
+            && let Some(top_hypothesis) = report.hypotheses.first() {
+                tracing::info!(hypothesis = %top_hypothesis.id, "Fast-path: Simple problem, running direct diagnostic");
+                if !cli.json {
+                    println!("{}", formatter.format_progress("Fast-path",
+                        &format!("Simple problem — testing H1: {}", &top_hypothesis.description[..top_hypothesis.description.len().min(60)])));
+                }
+
+                // Create a single specialist to confirm + fix
+                let fast_prompt = format!(
+                    "You are a fast diagnostic agent. Do these steps IN ORDER:\n\
+                     1. Run this command to confirm the hypothesis: {}\n\
+                     2. If confirmed, apply this fix: {}\n\
+                     3. Verify the fix worked\n\
+                     4. Report the result\n\n\
+                     Hypothesis: {}\n\
+                     Problem: {problem}",
+                    top_hypothesis.confirm_by, top_hypothesis.fix_approach,
+                    top_hypothesis.description,
+                );
+
+                let fast_config = crate::domain::agent::AgentConfig {
+                    id: crate::domain::agent::AgentId::new(),
+                    role: "Fast Diagnostic".into(),
+                    expertise: vec!["diagnostics".into(), "remediation".into()],
+                    system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
+                    goal: "Confirm hypothesis and apply fix".into(),
+                    allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
+                    token_budget: 400_000,
+                    max_conversation_turns: 20,
+                };
+
+                let fast_agent = crate::agents::specialist::SpecialistAgent::new(
+                    fast_config,
+                    Arc::clone(client),
+                    Arc::clone(tool_registry),
+                    Arc::clone(guardian),
+                    Arc::clone(budget),
+                    Arc::clone(masker),
+                    Arc::clone(metrics),
+                );
+
+                match fast_agent.execute(&fast_prompt).await {
+                    Ok(output) => {
+                        metrics.record_tokens(output.tokens_used);
+                        println!("{}", formatter.format_final_result(&output.content, metrics.total_tokens()));
+
+                        if let Some(mem) = memory.as_ref() {
+                            let _ = mem.save_finding(&FindingRecord {
+                                id: Uuid::new_v4().to_string(),
+                                session_id: session_id.to_string(),
+                                agent_role: "Fast Diagnostic".into(),
+                                finding: output.content[..output.content.len().min(2000)].to_string(),
+                                created_at: chrono::Utc::now().to_rfc3339(),
+                            });
+                        }
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Fast-path failed, falling back to full pipeline");
+                    }
+                }
+            }
 
     // =========================================================
     // Phase 2: CEO creates plan
@@ -408,7 +484,7 @@ async fn run_pipeline(
         println!("{}", formatter.format_dry_run_header());
         let factory = AgentFactory::new(
             Arc::clone(client), Arc::clone(tool_registry), Arc::clone(guardian),
-            Arc::clone(budget), Arc::clone(masker),
+            Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
         );
         let squad = factory.create_squad_from_plan(&plan, cli.max_agents)?;
         let runner = SquadRunner::new(Arc::clone(&ceo), cancellation.clone());
@@ -422,7 +498,7 @@ async fn run_pipeline(
     // =========================================================
     let factory = AgentFactory::new(
         Arc::clone(client), Arc::clone(tool_registry), Arc::clone(guardian),
-        Arc::clone(budget), Arc::clone(masker),
+        Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
     );
     let verifier = VerifierAgent::new(Arc::clone(client));
     let runner = SquadRunner::new(Arc::clone(&ceo), cancellation.clone());

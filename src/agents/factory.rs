@@ -8,6 +8,7 @@ use crate::domain::task::{Task, TaskId};
 use crate::error::Result;
 use crate::execution::budget::TokenBudget;
 use crate::safety::guardian::GuardianAgent;
+use crate::observability::metrics::Metrics;
 use crate::safety::secrets::SecretMasker;
 use crate::tools::registry::ToolRegistry;
 
@@ -19,6 +20,7 @@ pub struct AgentFactory {
     guardian: Arc<GuardianAgent>,
     budget: Arc<TokenBudget>,
     masker: Arc<SecretMasker>,
+    metrics: Arc<Metrics>,
 }
 
 impl AgentFactory {
@@ -28,6 +30,7 @@ impl AgentFactory {
         guardian: Arc<GuardianAgent>,
         budget: Arc<TokenBudget>,
         masker: Arc<SecretMasker>,
+        metrics: Arc<Metrics>,
     ) -> Self {
         Self {
             client,
@@ -35,6 +38,7 @@ impl AgentFactory {
             guardian,
             budget,
             masker,
+            metrics,
         }
     }
 
@@ -110,6 +114,7 @@ impl AgentFactory {
             Arc::clone(&self.guardian),
             Arc::clone(&self.budget),
             Arc::clone(&self.masker),
+            Arc::clone(&self.metrics),
         ))
     }
 }
@@ -133,11 +138,14 @@ Tool reference:
 - log_reader: {{"tool": "log_reader", "action": "read|search", "args": {{"path": "/path", "lines": "100", "pattern": "error"}}}}
 - code_writer: {{"tool": "code_writer", "action": "create|edit", "args": {{"path": "/path", "content": "...", "old_text": "...", "new_text": "..."}}}}
 
-Rules:
-- Focus exclusively on your area of expertise
-- Use ONE tool call per message
+CRITICAL RULES:
+- Use ONE tool call per message — output ONLY the JSON object, nothing else
+- Do NOT wrap the JSON in markdown code blocks
 - After observing tool output, decide your next action
-- When you have enough information, provide your final answer WITHOUT a tool call
+- You MUST actually execute commands — do not just describe what you would do
+- If your task is a "fix" task: APPLY the fix, don't just recommend it
+- If a command is blocked, try an alternative approach immediately
+- When done, provide your final answer WITHOUT a tool call
 - Be specific and concrete in your analysis
 - If a tool call is blocked, try an alternative approach
 - Start with read-only checks before any modifications
@@ -154,6 +162,24 @@ SIGNAL: UNEXPECTED [severity: info/warning/critical] [description]"#,
         tools = role.allowed_tools.join(", "),
     )
 }
+
+/// Base system prompt for specialist agents (used by fast-path in main.rs)
+pub const SPECIALIST_SYSTEM_PROMPT: &str = r#"You are a specialist agent that diagnoses and fixes infrastructure problems.
+
+To use a tool, output ONLY a JSON object (no markdown, no explanation before it):
+{"tool": "shell", "action": "run", "args": {"command": "your command here"}}
+
+Available tools:
+- shell: {"tool": "shell", "action": "run", "args": {"command": "..."}}
+- file_ops: {"tool": "file_ops", "action": "read|write|list", "args": {"path": "...", "content": "..."}}
+- log_reader: {"tool": "log_reader", "action": "read|search", "args": {"path": "...", "lines": "100", "pattern": "..."}}
+
+RULES:
+- ONE tool call per message — output ONLY the JSON, nothing else
+- Do NOT wrap JSON in markdown code blocks
+- You MUST execute commands, not just describe them
+- After confirming a problem, APPLY the fix
+- When done, provide your final answer WITHOUT a tool call"#;
 
 #[cfg(test)]
 mod tests {
