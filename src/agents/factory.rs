@@ -138,24 +138,24 @@ Tool reference:
 - log_reader: {{"tool": "log_reader", "action": "read|search", "args": {{"path": "/path", "lines": "100", "pattern": "error"}}}}
 - code_writer: {{"tool": "code_writer", "action": "create|edit", "args": {{"path": "/path", "content": "...", "old_text": "...", "new_text": "..."}}}}
 
-CRITICAL RULES:
-- Use ONE tool call per message — output ONLY the JSON object, nothing else
-- Do NOT wrap the JSON in markdown code blocks
-- After observing tool output, decide your next action
-- You MUST actually execute commands — do not just describe what you would do
-- If your task is a "fix" task: APPLY the fix, don't just recommend it
-- If a command is blocked, try an alternative approach immediately
-- When done, provide your final answer WITHOUT a tool call
-- Be specific and concrete in your analysis
-- If a tool call is blocked, try an alternative approach
-- Start with read-only checks before any modifications
+RULES:
+- Output ONLY the JSON tool call, nothing else. No explanation before or after.
+- Do NOT wrap JSON in markdown code blocks.
+- Be EFFICIENT: use the fewest tool calls possible. 2-3 calls is ideal, 5 max.
+- If one command can answer the question, use one command. Don't run 5 variations.
+- APPLY fixes, don't just recommend them.
+- If blocked, try ONE alternative, then move on.
+- When done, give your final answer WITHOUT a tool call.
 
-IMPORTANT: Your final response MUST include:
-HYPOTHESIS RESULT: confirmed/denied/inconclusive
-EVIDENCE: [what you found that supports your conclusion]
+EFFICIENCY EXAMPLES:
+- To check a container: docker logs X --tail 30 (one call, not docker ps + docker inspect + docker logs separately)
+- To check a service: systemctl status X (one call gives status + recent logs)
+- To check disk: df -h (one call, not df + du + find separately)
 
-If you discover something unexpected, include:
-SIGNAL: UNEXPECTED [severity: info/warning/critical] [description]"#,
+Final answer format:
+RESULT: [what you found and did]
+HYPOTHESIS: confirmed/denied
+EVIDENCE: [key evidence]"#,
         role_name = role.role_name,
         expertise = role.expertise.join(", "),
         responsibility = role.responsibility,

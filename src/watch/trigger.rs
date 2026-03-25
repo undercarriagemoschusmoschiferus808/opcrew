@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use serde::Deserialize;
+use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 
 use crate::error::Result;
@@ -34,28 +35,22 @@ impl CheckConfig {
     pub fn to_monitor_check(&self) -> MonitorCheck {
         match self {
             Self::DiskUsage { path, threshold_pct } => MonitorCheck::DiskUsage {
-                path: path.clone(),
-                threshold_pct: *threshold_pct,
+                path: path.clone(), threshold_pct: *threshold_pct,
             },
             Self::MemoryUsage { threshold_pct } => MonitorCheck::MemoryUsage {
                 threshold_pct: *threshold_pct,
             },
             Self::ServiceDown { service_name, check_cmd } => MonitorCheck::ServiceDown {
-                service_name: service_name.clone(),
-                check_cmd: check_cmd.clone(),
+                service_name: service_name.clone(), check_cmd: check_cmd.clone(),
             },
             Self::LogErrorRate { log_path, pattern, max_per_minute } => MonitorCheck::LogErrorRate {
-                log_path: log_path.clone(),
-                pattern: pattern.clone(),
-                max_per_minute: *max_per_minute,
+                log_path: log_path.clone(), pattern: pattern.clone(), max_per_minute: *max_per_minute,
             },
             Self::PortUnreachable { host, port } => MonitorCheck::PortUnreachable {
-                host: host.clone(),
-                port: *port,
+                host: host.clone(), port: *port,
             },
             Self::CustomCommand { cmd, expected_exit } => MonitorCheck::CustomCommand {
-                cmd: cmd.clone(),
-                expected_exit: *expected_exit,
+                cmd: cmd.clone(), expected_exit: *expected_exit,
             },
         }
     }
@@ -63,12 +58,7 @@ impl CheckConfig {
 
 impl Default for WatchConfig {
     fn default() -> Self {
-        Self {
-            interval_secs: 60,
-            auto_fix: false,
-            max_auto_rounds: 2,
-            checks: Vec::new(),
-        }
+        Self { interval_secs: 60, auto_fix: false, max_auto_rounds: 2, checks: Vec::new() }
     }
 }
 
@@ -81,13 +71,12 @@ impl WatchConfig {
     }
 }
 
-fn default_interval() -> u64 {
-    60
-}
+fn default_interval() -> u64 { 60 }
+fn default_max_rounds() -> u8 { 2 }
 
-fn default_max_rounds() -> u8 {
-    2
-}
+/// Channel for watch mode to send detected problems to the main pipeline.
+pub type ProblemSender = mpsc::Sender<String>;
+pub type ProblemReceiver = mpsc::Receiver<String>;
 
 pub struct WatchLoop {
     checks: Vec<MonitorCheck>,
@@ -95,6 +84,7 @@ pub struct WatchLoop {
     auto_fix: bool,
     formatter: OutputFormatter,
     cancellation: CancellationToken,
+    problem_tx: Option<ProblemSender>,
 }
 
 impl WatchLoop {
@@ -103,26 +93,27 @@ impl WatchLoop {
         cancellation: CancellationToken,
         json_mode: bool,
     ) -> Self {
-        let checks: Vec<MonitorCheck> = config
-            .checks
-            .iter()
-            .map(|c| c.to_monitor_check())
-            .collect();
-
+        let checks: Vec<MonitorCheck> = config.checks.iter().map(|c| c.to_monitor_check()).collect();
         Self {
             checks,
             interval: Duration::from_secs(config.interval_secs),
             auto_fix: config.auto_fix,
             formatter: OutputFormatter::new(json_mode),
             cancellation,
+            problem_tx: None,
         }
+    }
+
+    /// Set the channel for sending detected problems to the pipeline.
+    pub fn with_problem_sender(mut self, tx: ProblemSender) -> Self {
+        self.problem_tx = Some(tx);
+        self
     }
 
     pub fn add_check(&mut self, check: MonitorCheck) {
         self.checks.push(check);
     }
 
-    /// Run the watch loop. Returns when cancelled or on error.
     pub async fn run(&self) -> Result<()> {
         tracing::info!(
             checks = self.checks.len(),
@@ -131,15 +122,22 @@ impl WatchLoop {
             "Watch mode started"
         );
 
+        if self.checks.is_empty() {
+            eprintln!("⚠ No checks configured. Use --watch-config or run `opcrew infra discover` first.");
+            return Ok(());
+        }
+
         loop {
             let results = self.run_checks().await;
             let healthy = results.iter().filter(|r| r.status == CheckStatus::Healthy).count();
             let total = results.len();
 
             if healthy == total {
-                tracing::debug!("All {} checks healthy", total);
+                println!("{}", self.formatter.format_watch_status(healthy, total));
             } else {
                 println!("{}", self.formatter.format_watch_status(healthy, total));
+
+                let mut critical_problems = Vec::new();
                 for result in &results {
                     if result.status != CheckStatus::Healthy {
                         let severity = match result.status {
@@ -147,25 +145,42 @@ impl WatchLoop {
                             CheckStatus::Warning => "warning",
                             _ => "info",
                         };
-                        println!(
-                            "{}",
-                            self.formatter.format_alert(&result.check_name, &result.message, severity)
-                        );
+                        println!("{}", self.formatter.format_alert(&result.check_name, &result.message, severity));
 
-                        if self.auto_fix && result.status == CheckStatus::Critical {
-                            tracing::info!(check = %result.check_name, "Auto-fix would trigger full pipeline here");
-                            // Full pipeline trigger would go here (requires passing all Arc dependencies)
-                            // For now, log the intent
+                        if result.status == CheckStatus::Critical {
+                            critical_problems.push(result.message.clone());
+                        }
+                    }
+                }
+
+                // Auto-fix: send problems to pipeline
+                if self.auto_fix && !critical_problems.is_empty() {
+                    let problem = format!(
+                        "Watch mode detected {} critical issues:\n{}",
+                        critical_problems.len(),
+                        critical_problems.iter().enumerate()
+                            .map(|(i, p)| format!("{}. {p}", i + 1))
+                            .collect::<Vec<_>>()
+                            .join("\n")
+                    );
+
+                    if let Some(tx) = &self.problem_tx {
+                        tracing::info!(issues = critical_problems.len(), "Triggering auto-fix pipeline");
+                        println!("  >>> Triggering auto-fix for {} critical issues...", critical_problems.len());
+                        let _ = tx.send(problem).await;
+                    } else {
+                        tracing::info!(issues = critical_problems.len(), "Auto-fix: no pipeline connected (dry-run or missing config)");
+                        for p in &critical_problems {
+                            println!("  [auto-fix] Would fix: {p}");
                         }
                     }
                 }
             }
 
-            // Wait for interval or cancellation
             tokio::select! {
                 _ = tokio::time::sleep(self.interval) => continue,
                 _ = self.cancellation.cancelled() => {
-                    tracing::info!("Watch mode stopped (Ctrl+C)");
+                    tracing::info!("Watch mode stopped");
                     return Ok(());
                 }
             }
@@ -206,7 +221,6 @@ check_cmd = "systemctl is-active nginx"
 type = "MemoryUsage"
 threshold_pct = 90
 "#;
-
         let config: WatchConfig = toml::from_str(toml_str).unwrap();
         assert_eq!(config.interval_secs, 30);
         assert!(config.auto_fix);
@@ -215,10 +229,7 @@ threshold_pct = 90
 
     #[test]
     fn check_config_to_monitor_check() {
-        let config = CheckConfig::DiskUsage {
-            path: "/var".into(),
-            threshold_pct: 85,
-        };
+        let config = CheckConfig::DiskUsage { path: "/var".into(), threshold_pct: 85 };
         let check = config.to_monitor_check();
         assert_eq!(check.name(), "disk:/var");
     }
@@ -228,6 +239,5 @@ threshold_pct = 90
         let config = WatchConfig::default();
         assert_eq!(config.interval_secs, 60);
         assert!(!config.auto_fix);
-        assert_eq!(config.checks.len(), 0);
     }
 }

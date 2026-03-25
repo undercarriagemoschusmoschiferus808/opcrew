@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use colored::Colorize;
 
 use crate::api::provider::LlmProvider;
 use crate::api::types::{ChatMessage, MessageRole};
@@ -111,6 +112,14 @@ impl SpecialistAgent {
             tracing::debug!(agent = %self.config.role, response_len = response.len(),
                 response_preview = %&response[..response.len().min(300)], "Agent response");
             if let Some(tool_call) = extract_tool_call(&response) {
+                // Real-time progress: show what's being executed
+                let cmd_preview = tool_call.args.get("command")
+                    .or(tool_call.args.get("path"))
+                    .cloned()
+                    .unwrap_or_else(|| tool_call.action.clone());
+                let preview = &cmd_preview[..cmd_preview.len().min(80)];
+                eprintln!("  {} [{}] {} {}",
+                    "→".dimmed(), self.config.role.cyan(), tool_call.tool_name, preview.dimmed());
                 tracing::info!(agent = %self.config.role, tool = %tool_call.tool_name,
                     action = %tool_call.action, "Tool call detected");
                 // Guardian review

@@ -169,7 +169,53 @@ async fn main() -> anyhow::Result<()> {
         } else {
             WatchConfig::default()
         };
-        let watch_loop = WatchLoop::new(watch_config, cancellation.clone(), cli.json);
+
+        // Create problem channel for auto-fix
+        let (problem_tx, mut problem_rx) = tokio::sync::mpsc::channel::<String>(4);
+        let watch_loop = WatchLoop::new(watch_config, cancellation.clone(), cli.json)
+            .with_problem_sender(problem_tx);
+
+        // Clone deps for the auto-fix handler
+        let fix_client = Arc::clone(&client);
+        let fix_tools = Arc::clone(&tool_registry);
+        let fix_guardian = Arc::clone(&guardian);
+        let fix_budget = Arc::clone(&budget);
+        let fix_masker = Arc::clone(&masker);
+        let fix_metrics = Arc::clone(&metrics);
+        let _fix_cancel = cancellation.clone();
+
+        // Spawn auto-fix handler: receives problems from watch, runs fast-path
+        tokio::spawn(async move {
+            while let Some(problem) = problem_rx.recv().await {
+                tracing::info!(problem_len = problem.len(), "Auto-fix triggered by watch mode");
+                let fast_config = crate::domain::agent::AgentConfig {
+                    id: crate::domain::agent::AgentId::new(),
+                    role: "Watch Auto-Fix".into(),
+                    expertise: vec!["diagnostics".into(), "remediation".into()],
+                    system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
+                    goal: "Fix detected issue".into(),
+                    allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
+                    token_budget: 400_000,
+                    max_conversation_turns: 15,
+                };
+                let agent = crate::agents::specialist::SpecialistAgent::new(
+                    fast_config,
+                    Arc::clone(&fix_client), Arc::clone(&fix_tools),
+                    Arc::clone(&fix_guardian), Arc::clone(&fix_budget),
+                    Arc::clone(&fix_masker), Arc::clone(&fix_metrics),
+                );
+                match crate::domain::agent::AgentBehavior::execute(&agent, &problem).await {
+                    Ok(output) => {
+                        eprintln!("\n  >>> Auto-fix result:\n  {}\n",
+                            &output.content[..output.content.len().min(500)]);
+                    }
+                    Err(e) => {
+                        eprintln!("\n  >>> Auto-fix failed: {e}\n");
+                    }
+                }
+            }
+        });
+
         watch_loop.run().await?;
         return Ok(());
     }
@@ -544,7 +590,10 @@ async fn run_pipeline(
         Arc::clone(client), Arc::clone(tool_registry), Arc::clone(guardian),
         Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
     );
-    let verifier = VerifierAgent::new(Arc::clone(client));
+    let verifier = VerifierAgent::new(
+        Arc::clone(client), Arc::clone(tool_registry),
+        Arc::clone(guardian), Arc::clone(metrics),
+    );
     let runner = SquadRunner::new(Arc::clone(&ceo), cancellation.clone());
 
     let mut current_plan = plan;
