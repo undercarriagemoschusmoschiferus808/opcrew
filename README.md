@@ -18,17 +18,47 @@ Problem (CLI)
         -> CEO Synthesis (combines all results into a final report)
 ```
 
+## Multi-provider LLM support
+
+opcrew works with multiple LLM providers — not just Claude:
+
+| Provider | Flag | API Key Env Var | Default Model |
+|----------|------|-----------------|---------------|
+| Claude | `--provider claude` | `ANTHROPIC_API_KEY` | claude-sonnet-4-20250514 |
+| OpenAI | `--provider openai` | `OPENAI_API_KEY` | gpt-4o |
+| DeepSeek | `--provider deepseek` | `DEEPSEEK_API_KEY` | deepseek-chat |
+| Gemini | `--provider gemini` | `GEMINI_API_KEY` | gemini-2.5-flash |
+| Local (Ollama) | `--provider local` | None needed | llama3 |
+
+```bash
+# Use DeepSeek
+export DEEPSEEK_API_KEY=sk-...
+opcrew --provider deepseek --problem "nginx 502"
+
+# Use OpenAI with a specific model
+export OPENAI_API_KEY=sk-...
+opcrew --provider openai --model gpt-4o-mini --problem "disk full"
+
+# Use a local Ollama instance
+opcrew --provider local --model codestral --problem "check services"
+```
+
+Override the default model for any provider with `--model`.
+
 ## Quick start
 
 ```bash
 # Build
 cargo build --release
 
-# Set your API key
-export ANTHROPIC_API_KEY=sk-ant-...
+# Set your API key (pick your provider)
+export ANTHROPIC_API_KEY=sk-ant-...    # or OPENAI_API_KEY, DEEPSEEK_API_KEY, etc.
 
 # Solve a problem
 opcrew --problem "nginx is returning 502 errors"
+
+# Use a different provider
+opcrew --provider deepseek --problem "disk full on /var"
 
 # Preview without executing
 opcrew --problem "disk full on /var" --dry-run
@@ -43,7 +73,8 @@ opcrew examples
 |------|---------|-------------|
 | `--problem`, `-p` | | Problem description (required unless `--file` or `--watch`) |
 | `--file`, `-f` | | Read problem from a file |
-| `--model`, `-m` | `claude-sonnet-4-20250514` | Claude model to use |
+| `--provider` | `claude` | LLM provider: `claude`, `openai`, `deepseek`, `gemini`, `local` |
+| `--model`, `-m` | per provider | Override the default model for the selected provider |
 | `--max-tokens` | `4096` | Token limit per API call |
 | `--dry-run` | off | Preview plan and Guardian decisions without executing |
 | `--max-agents` | `5` | Maximum specialist agents in the squad |
@@ -67,10 +98,14 @@ Run `opcrew --help` for detailed explanations of each flag.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `ANTHROPIC_API_KEY` | *required* | Claude API key |
-| `CLAUDE_MODEL` | `claude-sonnet-4-20250514` | Override default model |
+| `ANTHROPIC_API_KEY` | | Claude API key (required for `--provider claude`) |
+| `OPENAI_API_KEY` | | OpenAI API key (required for `--provider openai`) |
+| `DEEPSEEK_API_KEY` | | DeepSeek API key (required for `--provider deepseek`) |
+| `GEMINI_API_KEY` | | Gemini API key (required for `--provider gemini`) |
+| `LOCAL_LLM_URL` | `http://localhost:11434/v1/chat/completions` | Ollama/local endpoint |
+| `LOCAL_LLM_MODEL` | `llama3` | Default model for local provider |
 | `MAX_TOKENS` | `4096` | Override default token limit |
-| `API_BASE_URL` | `https://api.anthropic.com` | API endpoint |
+| `API_BASE_URL` | `https://api.anthropic.com` | Claude API endpoint |
 | `SESSION_TOKEN_BUDGET` | `500000` | Default session budget |
 | `PER_AGENT_TOKEN_BUDGET` | `100000` | Per-agent token limit |
 | `PER_AGENT_CONVERSATION_CAP` | `30` | Max conversation turns per agent |
@@ -80,11 +115,30 @@ You can also place these in a `.env` file in the working directory.
 
 ## Infrastructure discovery
 
-Discover running services, ports, dependencies, and log paths on your infrastructure:
+opcrew uses adaptive discovery — it fingerprints your server first, then generates tailored commands based on what's actually installed.
+
+```
+Phase 1: Fingerprint (hardcoded probes, no LLM)
+  → Detects: OS, Docker, Podman, K8s, nginx, haproxy, Apache, Caddy, etc.
+
+Phase 2: LLM generates commands (up to 30, tailored to your stack)
+  → Docker detected? → docker ps, docker inspect, docker network ls
+  → K8s detected? → kubectl get pods/svc/ingress
+  → nginx detected? → nginx -T (dump config)
+
+Phase 3: Execute with failure classification
+  → Success / PermissionDenied / NotFound / Timeout
+
+Phase 4: LLM extracts service graph from all collected data
+  → Post-processing resolves any remaining unknowns from raw ss/docker data
+```
 
 ```bash
 # Scan localhost
 opcrew infra discover
+
+# Scan with elevated access (retries permission-denied commands with sudo)
+opcrew infra discover --sudo
 
 # Scan a remote host
 opcrew infra discover --host admin@prod-01
@@ -100,7 +154,7 @@ opcrew infra clear
 opcrew infra discover
 ```
 
-The graph is stored in `~/.opcrew/memory.db` and automatically loaded in future sessions. The CEO and Hypothesis agents use it to understand your infrastructure topology, log locations, and service dependencies.
+Without `--sudo`, permission-denied commands are skipped and gaps are noted. The graph is stored in `~/.opcrew/memory.db` and automatically loaded in future sessions.
 
 If the graph is older than 24 hours, a staleness warning is printed.
 
@@ -195,8 +249,12 @@ src/
   config.rs                Config from environment
   error.rs                 Error types (thiserror)
   api/
-    client.rs              Claude API client (streaming, rate limiting, retries)
-    types.rs               API request/response types
+    provider.rs            LlmProvider trait (multi-provider abstraction)
+    client.rs              Claude provider (streaming, rate limiting, retries)
+    openai.rs              OpenAI/DeepSeek provider (OpenAI-compatible API)
+    gemini.rs              Google Gemini provider
+    local.rs               Local LLM provider (Ollama, llama.cpp)
+    types.rs               Shared request/response types
     schema.rs              JSON Schema validation with retry
   domain/
     agent.rs               AgentBehavior trait, AgentConfig, signals
@@ -227,8 +285,8 @@ src/
     registry.rs             Tool registry
     target.rs               Local/remote (SSH) execution
   infra/
-    graph.rs                Infrastructure graph (services, dependencies)
-    discovery.rs            Auto-discovery agent
+    graph.rs                Infrastructure graph (services, dependencies, gaps)
+    discovery.rs            Adaptive discovery (fingerprint → LLM commands → execute → extract)
     commands.rs             Infra CLI handlers
   watch/
     monitor.rs              Health check types
@@ -248,7 +306,7 @@ src/
 
 - Rust 1.75+ (uses edition 2024)
 - Linux (sandboxing features use Linux-specific APIs)
-- Claude API key from [Anthropic](https://console.anthropic.com/)
+- An API key for at least one provider: Claude, OpenAI, DeepSeek, or Gemini. Or a local Ollama instance (no key needed).
 
 ## License
 
