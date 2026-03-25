@@ -69,40 +69,28 @@ struct OpenAiUsage {
 }
 
 impl OpenAiClient {
-    pub fn new_openai(config: &Config) -> Self {
+    pub fn new_openai(config: &Config, model_override: Option<String>) -> Result<Self> {
         let api_key = std::env::var("OPENAI_API_KEY")
-            .unwrap_or_else(|_| config.api_key.clone());
+            .map_err(|_| AgentError::ConfigError("OPENAI_API_KEY is required for --provider openai".into()))?;
+        let model = model_override
+            .or_else(|| std::env::var("OPENAI_MODEL").ok())
+            .unwrap_or_else(|| "gpt-4o".into());
 
-        Self::build(
-            api_key,
-            "https://api.openai.com/v1/chat/completions".into(),
-            std::env::var("OPENAI_MODEL").unwrap_or_else(|_| "gpt-4o".into()),
-            config.max_tokens,
-            "openai".into(),
-        )
+        Ok(Self::build(api_key, "https://api.openai.com/v1/chat/completions".into(), model, config.max_tokens, "openai".into()))
     }
 
-    pub fn new_deepseek(config: &Config) -> Self {
+    pub fn new_deepseek(config: &Config, model_override: Option<String>) -> Result<Self> {
         let api_key = std::env::var("DEEPSEEK_API_KEY")
-            .unwrap_or_else(|_| config.api_key.clone());
+            .map_err(|_| AgentError::ConfigError("DEEPSEEK_API_KEY is required for --provider deepseek".into()))?;
+        let model = model_override
+            .or_else(|| std::env::var("DEEPSEEK_MODEL").ok())
+            .unwrap_or_else(|| "deepseek-chat".into());
 
-        Self::build(
-            api_key,
-            "https://api.deepseek.com/v1/chat/completions".into(),
-            std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-chat".into()),
-            config.max_tokens,
-            "deepseek".into(),
-        )
+        Ok(Self::build(api_key, "https://api.deepseek.com/chat/completions".into(), model, config.max_tokens, "deepseek".into()))
     }
 
     pub fn new_local(base_url: String, model: String, max_tokens: u32) -> Self {
-        Self::build(
-            String::new(), // No auth for local
-            base_url,
-            model,
-            max_tokens,
-            "local".into(),
-        )
+        Self::build(String::new(), base_url, model, max_tokens, "local".into())
     }
 
     fn build(api_key: String, base_url: String, model: String, max_tokens: u32, provider: String) -> Self {

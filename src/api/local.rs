@@ -12,11 +12,12 @@ pub struct LocalClient {
 }
 
 impl LocalClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, model_override: Option<String>) -> Self {
         let base_url = std::env::var("LOCAL_LLM_URL")
             .unwrap_or_else(|_| "http://localhost:11434/v1/chat/completions".into());
-        let model = std::env::var("LOCAL_LLM_MODEL")
-            .unwrap_or_else(|_| "llama3".into());
+        let model = model_override
+            .or_else(|| std::env::var("LOCAL_LLM_MODEL").ok())
+            .unwrap_or_else(|| "llama3".into());
 
         let inner = OpenAiClient::new_local(base_url, model, config.max_tokens);
         Self { inner }

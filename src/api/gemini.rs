@@ -11,6 +11,7 @@ use crate::api::provider::LlmProvider;
 use crate::api::types::{ChatMessage, MessageRole, Usage};
 use crate::config::Config;
 use crate::error::{AgentError, Result};
+// AgentError used for ConfigError in new()
 
 type TokenBucket = RateLimiter<
     governor::state::NotKeyed,
@@ -72,11 +73,12 @@ struct GeminiUsage {
 }
 
 impl GeminiClient {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(config: &Config, model_override: Option<String>) -> Result<Self> {
         let api_key = std::env::var("GEMINI_API_KEY")
-            .unwrap_or_else(|_| config.api_key.clone());
-        let model = std::env::var("GEMINI_MODEL")
-            .unwrap_or_else(|_| "gemini-2.5-flash".into());
+            .map_err(|_| AgentError::ConfigError("GEMINI_API_KEY is required for --provider gemini".into()))?;
+        let model = model_override
+            .or_else(|| std::env::var("GEMINI_MODEL").ok())
+            .unwrap_or_else(|| "gemini-2.5-flash".into());
 
         let http = Client::builder()
             .timeout(Duration::from_secs(120))
@@ -85,13 +87,13 @@ impl GeminiClient {
 
         let quota = Quota::per_second(NonZeroU32::new(10).unwrap());
 
-        Self {
+        Ok(Self {
             http,
             api_key,
             model,
             max_tokens: config.max_tokens,
             rate_limiter: Arc::new(RateLimiter::direct(quota)),
-        }
+        })
     }
 
     fn endpoint(&self) -> String {

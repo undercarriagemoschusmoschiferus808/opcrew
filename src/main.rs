@@ -63,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Command::Infra(action)) => {
             let config = Arc::new(config::Config::from_env()?);
-            let client = create_provider(&cli.provider, &config)?;
+            let client = create_provider(&cli.provider, &config, cli.model.clone())?;
             let memory = memory::store::MemoryStore::open()?;
             infra::commands::handle_infra_command(action, &memory, &client).await?;
             return Ok(());
@@ -80,7 +80,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Load config
     let config = Arc::new(config::Config::from_env()?);
-    tracing::info!(model = %config.model, "Configuration loaded");
+    tracing::info!("Configuration loaded");
 
     // Formatter
     let formatter = OutputFormatter::new(cli.json);
@@ -106,7 +106,7 @@ async fn main() -> anyhow::Result<()> {
     audit_log.log(session_entry)?;
 
     // LLM provider
-    let client = create_provider(&cli.provider, &config)?;
+    let client = create_provider(&cli.provider, &config, cli.model.clone())?;
     tracing::info!(provider = client.provider_name(), model = client.model_name(), "LLM provider initialized");
 
     // Token budget
@@ -250,15 +250,17 @@ async fn main() -> anyhow::Result<()> {
 fn create_provider(
     provider_name: &str,
     config: &Arc<config::Config>,
+    model_override: Option<String>,
 ) -> anyhow::Result<Arc<dyn LlmProvider>> {
-    match provider_name {
-        "claude" => Ok(Arc::new(ClaudeClient::new(Arc::clone(config)))),
-        "openai" => Ok(Arc::new(OpenAiClient::new_openai(config))),
-        "deepseek" => Ok(Arc::new(OpenAiClient::new_deepseek(config))),
-        "gemini" => Ok(Arc::new(GeminiClient::new(config))),
-        "local" => Ok(Arc::new(LocalClient::new(config))),
-        other => Err(anyhow::anyhow!(
+    let provider: Arc<dyn LlmProvider> = match provider_name {
+        "claude" => Arc::new(ClaudeClient::new(Arc::clone(config))),
+        "openai" => Arc::new(OpenAiClient::new_openai(config, model_override)?),
+        "deepseek" => Arc::new(OpenAiClient::new_deepseek(config, model_override)?),
+        "gemini" => Arc::new(GeminiClient::new(config, model_override)?),
+        "local" => Arc::new(LocalClient::new(config, model_override)),
+        other => return Err(anyhow::anyhow!(
             "Unknown provider: '{other}'. Use: claude, openai, deepseek, gemini, local"
         )),
-    }
+    };
+    Ok(provider)
 }

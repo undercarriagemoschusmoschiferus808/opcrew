@@ -1,11 +1,14 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use std::collections::HashMap;
+
 use crate::api::provider::LlmProvider;
-use crate::api::schema::validate_and_retry;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::error::{AgentError, Result};
-use crate::infra::graph::InfraGraph;
+use crate::infra::graph::{
+    Dependency, DependencyType, DiscoveryMethod, InfraGraph, Service, ServiceType,
+};
 use crate::tools::shell::ShellTool;
 use crate::tools::target::TargetHost;
 use crate::tools::traits::{Tool, ToolParams};
@@ -64,7 +67,14 @@ impl DiscoveryAgent {
         for (name, output) in raw_data {
             prompt.push_str(&format!("### {name}\n```\n{}\n```\n\n", &output[..output.len().min(5000)]));
         }
-        prompt.push_str("Return ONLY valid JSON matching the InfraGraph schema.");
+        prompt.push_str(
+            "Return ONLY valid JSON with this structure:\n\
+{\n  \"services\": [{\"name\": \"svc\", \"host\": \"localhost\", \"port\": 80, \
+\"service_type\": \"Web\", \"discovered_via\": \"Systemd\", \
+\"log_paths\": [], \"config_paths\": []}],\n  \
+\"dependencies\": [{\"from\": \"a\", \"to\": \"b\", \"dep_type\": \"Required\", \
+\"discovered_via\": \"config\"}],\n  \"hosts\": [\"localhost\"]\n}"
+        );
 
         let messages = vec![ChatMessage {
             role: MessageRole::User,
@@ -76,17 +86,12 @@ impl DiscoveryAgent {
             .send_message(EXTRACTION_SYSTEM_PROMPT, &messages)
             .await?;
 
-        let schema = infra_graph_schema();
-        let (graph, _): (InfraGraph, _) = validate_and_retry(
-            self.client.as_ref(),
-            EXTRACTION_SYSTEM_PROMPT,
-            &messages,
-            &response,
-            &schema,
-            2,
-        )
-        .await?;
+        // Flexible parsing: LLMs return services as either array or object
+        let json_str = crate::api::schema::extract_json(&response);
+        let raw: serde_json::Value = serde_json::from_str(&json_str)
+            .map_err(|e| AgentError::InfraError(format!("Invalid JSON from LLM: {e}")))?;
 
+        let graph = parse_graph_flexible(&raw)?;
         Ok(graph)
     }
 
@@ -108,45 +113,120 @@ impl DiscoveryAgent {
     }
 }
 
-fn infra_graph_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "required": ["services", "dependencies"],
-        "properties": {
-            "services": {
-                "type": "object",
-                "additionalProperties": {
-                    "type": "object",
-                    "required": ["name", "host", "service_type", "discovered_via"],
-                    "properties": {
-                        "name": { "type": "string" },
-                        "host": { "type": "string" },
-                        "port": { "type": ["integer", "null"] },
-                        "process_name": { "type": ["string", "null"] },
-                        "log_paths": { "type": "array", "items": { "type": "string" } },
-                        "config_paths": { "type": "array", "items": { "type": "string" } },
-                        "health_check": { "type": ["string", "null"] },
-                        "service_type": { "type": "string" },
-                        "discovered_via": { "type": "string" }
+/// Flexibly parse LLM output into InfraGraph.
+/// Handles both array format (DeepSeek) and object format (Claude).
+fn parse_graph_flexible(raw: &serde_json::Value) -> Result<InfraGraph> {
+    let mut graph = InfraGraph::new();
+
+    // Parse services — accept array or object
+    if let Some(services) = raw.get("services") {
+        match services {
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    if let Some(svc) = parse_service_from_value(item) {
+                        graph.services.insert(svc.name.clone(), svc);
                     }
                 }
-            },
-            "dependencies": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "required": ["from", "to", "dep_type", "discovered_via"],
-                    "properties": {
-                        "from": { "type": "string" },
-                        "to": { "type": "string" },
-                        "dep_type": { "type": "string" },
-                        "discovered_via": { "type": "string" }
+            }
+            serde_json::Value::Object(map) => {
+                for (name, item) in map {
+                    if let Some(mut svc) = parse_service_from_value(item) {
+                        if svc.name.is_empty() {
+                            svc.name = name.clone();
+                        }
+                        graph.services.insert(svc.name.clone(), svc);
                     }
                 }
-            },
-            "discovered_at": { "type": "string" },
-            "hosts": { "type": "array", "items": { "type": "string" } }
+            }
+            _ => {}
         }
+    }
+
+    // Parse dependencies
+    if let Some(serde_json::Value::Array(deps)) = raw.get("dependencies") {
+        for item in deps {
+            let from = item.get("from").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let to = item.get("to").and_then(|v| v.as_str()).unwrap_or_default().to_string();
+            let dep_type_str = item.get("dep_type").and_then(|v| v.as_str()).unwrap_or("Required");
+            let discovered_via = item.get("discovered_via").and_then(|v| v.as_str()).unwrap_or("").to_string();
+
+            if !from.is_empty() && !to.is_empty() {
+                graph.dependencies.push(Dependency {
+                    from,
+                    to,
+                    dep_type: match dep_type_str {
+                        "Optional" => DependencyType::Optional,
+                        "LoadBalanced" => DependencyType::LoadBalanced,
+                        _ => DependencyType::Required,
+                    },
+                    discovered_via,
+                });
+            }
+        }
+    }
+
+    // Parse hosts
+    if let Some(serde_json::Value::Array(hosts)) = raw.get("hosts") {
+        graph.hosts = hosts.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+    }
+    if graph.hosts.is_empty() {
+        // Derive from services
+        let hosts: std::collections::HashSet<String> = graph.services.values().map(|s| s.host.clone()).collect();
+        graph.hosts = hosts.into_iter().collect();
+    }
+
+    Ok(graph)
+}
+
+fn parse_service_from_value(v: &serde_json::Value) -> Option<Service> {
+    let name = v.get("name").or(v.get("service_name")).and_then(|n| n.as_str())?.to_string();
+    let host = v.get("host").and_then(|h| h.as_str()).unwrap_or("localhost").to_string();
+    let port = v.get("port").and_then(|p| p.as_u64()).map(|p| p as u16);
+    let process_name = v.get("process_name").and_then(|p| p.as_str()).map(String::from);
+
+    let log_paths: Vec<String> = match v.get("log_paths").or(v.get("log_path")) {
+        Some(serde_json::Value::Array(arr)) => arr.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => vec![s.clone()],
+        _ => vec![],
+    };
+
+    let config_paths: Vec<String> = match v.get("config_paths").or(v.get("config_path")) {
+        Some(serde_json::Value::Array(arr)) => arr.iter().filter_map(|x| x.as_str().map(String::from)).collect(),
+        Some(serde_json::Value::String(s)) if !s.is_empty() => vec![s.clone()],
+        _ => vec![],
+    };
+
+    let health_check = v.get("health_check").and_then(|h| h.as_str()).map(String::from);
+
+    let service_type_str = v.get("service_type").and_then(|s| s.as_str()).unwrap_or("Custom");
+    let service_type = match service_type_str {
+        "Web" => ServiceType::Web,
+        "Database" => ServiceType::Database,
+        "Cache" => ServiceType::Cache,
+        "Queue" => ServiceType::Queue,
+        "LoadBalancer" => ServiceType::LoadBalancer,
+        _ => ServiceType::Custom,
+    };
+
+    let discovered_via_str = v.get("discovered_via").and_then(|d| d.as_str()).unwrap_or("Process");
+    let discovered_via = match discovered_via_str {
+        "Systemd" => DiscoveryMethod::Systemd,
+        "Port" => DiscoveryMethod::Port,
+        "Docker" => DiscoveryMethod::Docker,
+        "Manual" => DiscoveryMethod::Manual,
+        _ => DiscoveryMethod::Process,
+    };
+
+    Some(Service {
+        name,
+        host,
+        port,
+        process_name,
+        log_paths,
+        config_paths,
+        health_check,
+        service_type,
+        discovered_via,
     })
 }
 
