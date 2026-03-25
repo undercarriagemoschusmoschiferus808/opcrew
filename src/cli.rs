@@ -90,11 +90,11 @@ pub struct Cli {
     pub auto_approve: bool,
 
     /// Session token budget (hard cap)
-    #[arg(long, default_value = "500000", long_help = "\
+    #[arg(long, default_value = "2000000", long_help = "\
         Maximum total tokens (input + output) across all API calls in this session.\n\
         When the budget is exhausted, agents wrap up with partial results.\n\
         Each agent gets a proportional share (session_budget / max_agents).\n\n\
-        Example: --session-budget 200000")]
+        Example: --session-budget 500000")]
     pub session_budget: u32,
 
     /// Target host for remote execution (user@host)
@@ -147,11 +147,11 @@ pub struct Cli {
     pub max_rounds: u8,
 
     /// Global session timeout in seconds
-    #[arg(long, default_value = "600", long_help = "\
+    #[arg(long, default_value = "1800", long_help = "\
         Hard wall-clock limit for the entire session. When reached, all agents are \
         cancelled, partial results are saved to memory, and a report is printed.\n\
         Independent of --max-rounds (both are safety nets).\n\n\
-        Example: --session-timeout 300  (5 minutes)")]
+        Example: --session-timeout 600  (10 minutes)")]
     pub session_timeout: u64,
 
     /// Enable watch mode (continuous monitoring)

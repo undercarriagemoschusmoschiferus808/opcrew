@@ -29,9 +29,9 @@ impl Config {
             model: env_or("CLAUDE_MODEL", "claude-sonnet-4-20250514"),
             max_tokens: env_parse("MAX_TOKENS", 4096),
             base_url: env_or("API_BASE_URL", "https://api.anthropic.com"),
-            session_token_budget: env_parse("SESSION_TOKEN_BUDGET", 500_000),
-            per_agent_token_budget: env_parse("PER_AGENT_TOKEN_BUDGET", 100_000),
-            per_agent_conversation_cap: env_parse("PER_AGENT_CONVERSATION_CAP", 30),
+            session_token_budget: env_parse("SESSION_TOKEN_BUDGET", 2_000_000),
+            per_agent_token_budget: env_parse("PER_AGENT_TOKEN_BUDGET", 400_000),
+            per_agent_conversation_cap: env_parse("PER_AGENT_CONVERSATION_CAP", 50),
             log_level: env_or("LOG_LEVEL", "info"),
         })
     }
