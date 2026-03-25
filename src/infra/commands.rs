@@ -37,7 +37,7 @@ pub async fn handle_infra_command(
             for svc in graph.services.values() {
                 let port = svc.port.map(|p| format!(":{p}")).unwrap_or_default();
                 println!(
-                    "  {} {:?}{port}",
+                    "  {:<28} {:?}{port}",
                     svc.name.bold(),
                     svc.service_type
                 );
@@ -103,11 +103,10 @@ fn print_graph(graph: &InfraGraph) {
             svc.log_paths.join(", ")
         };
         println!(
-            "  {} {}{:?}{}  logs={}",
+            "  {} {:<28} {:<15} {}",
             "●".green(),
             svc.name.bold(),
-            svc.service_type,
-            port.dimmed(),
+            format!("{:?}{}", svc.service_type, port).dimmed(),
             logs.dimmed(),
         );
     }
