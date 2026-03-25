@@ -16,14 +16,14 @@ pub async fn handle_infra_command(
     client: &Arc<dyn LlmProvider>,
 ) -> Result<()> {
     match action {
-        InfraAction::Discover { host } => {
+        InfraAction::Discover { host, sudo } => {
             let target = host
                 .as_ref()
                 .and_then(|h| TargetHost::parse_target(h))
                 .unwrap_or_default();
 
             let agent = DiscoveryAgent::new(Arc::clone(client));
-            let graph = agent.discover(&target).await?;
+            let graph = agent.discover(&target, *sudo).await?;
 
             let conn = memory.connection().lock().unwrap();
             graph.save_to_db(&conn)?;
@@ -50,6 +50,9 @@ pub async fn handle_infra_command(
                         dep.from, dep.to, dep.dep_type, dep.discovered_via
                     );
                 }
+            }
+            for gap in &graph.gaps {
+                eprintln!("  {} {}", "⚠".yellow(), gap);
             }
             println!("  Saved to ~/.opcrew/memory.db");
         }

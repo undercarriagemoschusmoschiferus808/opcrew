@@ -224,6 +224,13 @@ pub enum InfraAction {
             Format: user@hostname\n\n\
             Example: --host deploy@web-01")]
         host: Option<String>,
+
+        /// Retry permission-denied commands with sudo
+        #[arg(long, long_help = "\
+            If some commands fail with permission denied, retry them with sudo.\n\
+            Without this flag, those commands are skipped and gaps are noted.\n\n\
+            Example: opcrew infra discover --sudo")]
+        sudo: bool,
     },
 
     /// Display the current infrastructure graph

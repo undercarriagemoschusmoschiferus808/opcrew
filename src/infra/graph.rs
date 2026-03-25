@@ -13,6 +13,8 @@ pub struct InfraGraph {
     pub dependencies: Vec<Dependency>,
     pub discovered_at: DateTime<Utc>,
     pub hosts: Vec<String>,
+    #[serde(default)]
+    pub gaps: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -69,6 +71,7 @@ impl InfraGraph {
             dependencies: Vec::new(),
             discovered_at: Utc::now(),
             hosts: Vec::new(),
+            gaps: Vec::new(),
         }
     }
 
