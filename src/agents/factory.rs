@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::domain::agent::{AgentConfig, AgentId};
 use crate::domain::plan::{Plan, PlannedRole};
 use crate::domain::squad::Squad;
@@ -14,7 +14,7 @@ use crate::tools::registry::ToolRegistry;
 use super::specialist::SpecialistAgent;
 
 pub struct AgentFactory {
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
     tools: Arc<ToolRegistry>,
     guardian: Arc<GuardianAgent>,
     budget: Arc<TokenBudget>,
@@ -23,7 +23,7 @@ pub struct AgentFactory {
 
 impl AgentFactory {
     pub fn new(
-        client: Arc<ClaudeClient>,
+        client: Arc<dyn LlmProvider>,
         tools: Arc<ToolRegistry>,
         guardian: Arc<GuardianAgent>,
         budget: Arc<TokenBudget>,

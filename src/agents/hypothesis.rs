@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::schema::validate_and_retry;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::error::Result;
@@ -36,11 +36,11 @@ pub enum Complexity {
 }
 
 pub struct HypothesisAgent {
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
 }
 
 impl HypothesisAgent {
-    pub fn new(client: Arc<ClaudeClient>) -> Self {
+    pub fn new(client: Arc<dyn LlmProvider>) -> Self {
         Self { client }
     }
 
@@ -89,7 +89,7 @@ impl HypothesisAgent {
 
         let schema = hypothesis_report_schema();
         let (report, _): (HypothesisReport, _) = validate_and_retry(
-            &self.client,
+            self.client.as_ref(),
             HYPOTHESIS_SYSTEM_PROMPT,
             &messages,
             &response,

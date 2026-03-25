@@ -16,14 +16,13 @@ impl Config {
     pub fn from_env() -> Result<Self> {
         dotenvy::dotenv().ok();
 
+        // API key: try provider-specific env var, fall back to ANTHROPIC_API_KEY
+        // Not required for local provider
         let api_key = std::env::var("ANTHROPIC_API_KEY")
-            .map_err(|_| AgentError::ConfigError("ANTHROPIC_API_KEY is required".into()))?;
-
-        if api_key.is_empty() {
-            return Err(AgentError::ConfigError(
-                "ANTHROPIC_API_KEY must not be empty".into(),
-            ));
-        }
+            .or_else(|_| std::env::var("OPENAI_API_KEY"))
+            .or_else(|_| std::env::var("DEEPSEEK_API_KEY"))
+            .or_else(|_| std::env::var("GEMINI_API_KEY"))
+            .unwrap_or_default();
 
         Ok(Self {
             api_key,
@@ -54,21 +53,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn missing_api_key_returns_error() {
-        // SAFETY: test-only, single-threaded access to env vars
-        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
+    fn missing_api_key_defaults_to_empty() {
+        // API key is optional now (local provider doesn't need one)
+        unsafe {
+            std::env::remove_var("ANTHROPIC_API_KEY");
+            std::env::remove_var("OPENAI_API_KEY");
+            std::env::remove_var("DEEPSEEK_API_KEY");
+            std::env::remove_var("GEMINI_API_KEY");
+        };
         let result = Config::from_env();
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("ANTHROPIC_API_KEY"));
-    }
-
-    #[test]
-    fn empty_api_key_returns_error() {
-        unsafe { std::env::set_var("ANTHROPIC_API_KEY", "") };
-        let result = Config::from_env();
-        assert!(result.is_err());
-        unsafe { std::env::remove_var("ANTHROPIC_API_KEY") };
+        assert!(result.is_ok());
+        assert!(result.unwrap().api_key.is_empty());
     }
 
     #[test]

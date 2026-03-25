@@ -24,6 +24,10 @@ use tokio_util::sync::CancellationToken;
 use crate::agents::ceo::CeoAgent;
 use crate::agents::factory::AgentFactory;
 use crate::api::client::ClaudeClient;
+use crate::api::gemini::GeminiClient;
+use crate::api::local::LocalClient;
+use crate::api::openai::OpenAiClient;
+use crate::api::provider::LlmProvider;
 use crate::cli::{Cli, Command};
 use crate::execution::budget::TokenBudget;
 use crate::execution::runner::SquadRunner;
@@ -59,7 +63,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Some(Command::Infra(action)) => {
             let config = Arc::new(config::Config::from_env()?);
-            let client = Arc::new(ClaudeClient::new(Arc::clone(&config)));
+            let client = create_provider(&cli.provider, &config)?;
             let memory = memory::store::MemoryStore::open()?;
             infra::commands::handle_infra_command(action, &memory, &client).await?;
             return Ok(());
@@ -101,8 +105,9 @@ async fn main() -> anyhow::Result<()> {
     session_entry.result_output = Some(problem.clone());
     audit_log.log(session_entry)?;
 
-    // Claude API client
-    let client = Arc::new(ClaudeClient::new(Arc::clone(&config)));
+    // LLM provider
+    let client = create_provider(&cli.provider, &config)?;
+    tracing::info!(provider = client.provider_name(), model = client.model_name(), "LLM provider initialized");
 
     // Token budget
     let budget = Arc::new(TokenBudget::new(
@@ -240,4 +245,20 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(tokens = total_tokens, "Session completed");
 
     Ok(())
+}
+
+fn create_provider(
+    provider_name: &str,
+    config: &Arc<config::Config>,
+) -> anyhow::Result<Arc<dyn LlmProvider>> {
+    match provider_name {
+        "claude" => Ok(Arc::new(ClaudeClient::new(Arc::clone(config)))),
+        "openai" => Ok(Arc::new(OpenAiClient::new_openai(config))),
+        "deepseek" => Ok(Arc::new(OpenAiClient::new_deepseek(config))),
+        "gemini" => Ok(Arc::new(GeminiClient::new(config))),
+        "local" => Ok(Arc::new(LocalClient::new(config))),
+        other => Err(anyhow::anyhow!(
+            "Unknown provider: '{other}'. Use: claude, openai, deepseek, gemini, local"
+        )),
+    }
 }

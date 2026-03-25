@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::schema::validate_and_retry;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::error::{AgentError, Result};
@@ -22,11 +22,11 @@ const DISCOVERY_COMMANDS: &[(&str, &str)] = &[
 ];
 
 pub struct DiscoveryAgent {
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
 }
 
 impl DiscoveryAgent {
-    pub fn new(client: Arc<ClaudeClient>) -> Self {
+    pub fn new(client: Arc<dyn LlmProvider>) -> Self {
         Self { client }
     }
 
@@ -78,7 +78,7 @@ impl DiscoveryAgent {
 
         let schema = infra_graph_schema();
         let (graph, _): (InfraGraph, _) = validate_and_retry(
-            &self.client,
+            self.client.as_ref(),
             EXTRACTION_SYSTEM_PROMPT,
             &messages,
             &response,

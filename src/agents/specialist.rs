@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::domain::agent::{AgentBehavior, AgentConfig, AgentOutput};
 use crate::error::Result;
@@ -18,7 +18,7 @@ use crate::tools::traits::ToolParams;
 /// Each tool call goes through the Guardian before execution.
 pub struct SpecialistAgent {
     config: AgentConfig,
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
     tools: Arc<ToolRegistry>,
     guardian: Arc<GuardianAgent>,
     budget: Arc<TokenBudget>,
@@ -28,7 +28,7 @@ pub struct SpecialistAgent {
 impl SpecialistAgent {
     pub fn new(
         config: AgentConfig,
-        client: Arc<ClaudeClient>,
+        client: Arc<dyn LlmProvider>,
         tools: Arc<ToolRegistry>,
         guardian: Arc<GuardianAgent>,
         budget: Arc<TokenBudget>,

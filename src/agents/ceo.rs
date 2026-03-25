@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::schema::validate_and_retry;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::domain::agent::{AgentBehavior, AgentConfig, AgentId, AgentOutput};
@@ -11,11 +11,11 @@ use crate::error::{AgentError, Result};
 
 pub struct CeoAgent {
     config: AgentConfig,
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
 }
 
 impl CeoAgent {
-    pub fn new(client: Arc<ClaudeClient>) -> Self {
+    pub fn new(client: Arc<dyn LlmProvider>) -> Self {
         let config = AgentConfig {
             id: AgentId::new(),
             role: "CEO".to_string(),
@@ -50,7 +50,7 @@ impl CeoAgent {
         // Validate against schema with retry
         let schema = plan_json_schema();
         let (mut plan, _extra_usage): (Plan, _) = validate_and_retry(
-            &self.client,
+            self.client.as_ref(),
             PLANNING_SYSTEM_PROMPT,
             &messages,
             &response,

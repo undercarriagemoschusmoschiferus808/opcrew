@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::error::{AgentError, Result};
 use crate::execution::circuit_breaker::CircuitBreaker;
@@ -20,14 +20,14 @@ pub enum ReviewDecision {
 pub struct GuardianAgent {
     allowlist: Allowlist,
     approval_manager: ApprovalManager,
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
     breaker: CircuitBreaker,
     audit_log: Arc<AuditLog>,
 }
 
 impl GuardianAgent {
     pub fn new(
-        client: Arc<ClaudeClient>,
+        client: Arc<dyn LlmProvider>,
         audit_log: Arc<AuditLog>,
         max_prompts: u16,
         auto_approve: bool,

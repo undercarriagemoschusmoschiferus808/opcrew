@@ -33,12 +33,29 @@ pub struct Cli {
         Example: --file incident-report.txt")]
     pub file: Option<PathBuf>,
 
-    /// Claude model to use
-    #[arg(short, long, default_value = "claude-sonnet-4-20250514", long_help = "\
-        Which Claude model powers the agents. Sonnet is the default (best balance of \
-        speed and capability). Use Opus for complex architectural problems.\n\n\
-        Example: --model claude-opus-4-20250514")]
-    pub model: String,
+    /// LLM provider
+    #[arg(long, default_value = "claude", long_help = "\
+        Which LLM provider to use. Each provider requires its own API key env var.\n\n\
+        Providers:\n\
+        - claude:   Anthropic Claude (ANTHROPIC_API_KEY)\n\
+        - openai:   OpenAI GPT (OPENAI_API_KEY)\n\
+        - deepseek: DeepSeek (DEEPSEEK_API_KEY)\n\
+        - gemini:   Google Gemini (GEMINI_API_KEY)\n\
+        - local:    Ollama/llama.cpp (LOCAL_LLM_URL, no key needed)\n\n\
+        Example: --provider openai")]
+    pub provider: String,
+
+    /// Model name to use
+    #[arg(short, long, long_help = "\
+        Override the default model for the selected provider.\n\
+        If omitted, each provider uses a sensible default:\n\
+        - claude: claude-sonnet-4-20250514\n\
+        - openai: gpt-4o\n\
+        - deepseek: deepseek-chat\n\
+        - gemini: gemini-2.5-flash\n\
+        - local: llama3\n\n\
+        Example: --model gpt-4o-mini")]
+    pub model: Option<String>,
 
     /// Maximum tokens per API call
     #[arg(long, default_value = "4096", long_help = "\

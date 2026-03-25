@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use colored::*;
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::cli::InfraAction;
 use crate::error::Result;
 use crate::infra::discovery::DiscoveryAgent;
@@ -13,7 +13,7 @@ use crate::tools::target::TargetHost;
 pub async fn handle_infra_command(
     action: &InfraAction,
     memory: &MemoryStore,
-    client: &Arc<ClaudeClient>,
+    client: &Arc<dyn LlmProvider>,
 ) -> Result<()> {
     match action {
         InfraAction::Discover { host } => {

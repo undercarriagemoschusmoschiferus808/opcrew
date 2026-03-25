@@ -3,7 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::api::schema::extract_json;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::domain::agent::{AgentBehavior, AgentConfig, AgentId, AgentOutput};
@@ -79,11 +79,11 @@ impl VerificationResult {
 
 pub struct VerifierAgent {
     config: AgentConfig,
-    client: Arc<ClaudeClient>,
+    client: Arc<dyn LlmProvider>,
 }
 
 impl VerifierAgent {
-    pub fn new(client: Arc<ClaudeClient>) -> Self {
+    pub fn new(client: Arc<dyn LlmProvider>) -> Self {
         let config = AgentConfig {
             id: AgentId::new(),
             role: "Verifier".to_string(),

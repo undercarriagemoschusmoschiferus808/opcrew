@@ -243,6 +243,45 @@ impl ClaudeClient {
     }
 }
 
+// --- LlmProvider trait implementation for ClaudeClient ---
+
+#[async_trait::async_trait]
+impl crate::api::provider::LlmProvider for ClaudeClient {
+    async fn send_message(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> Result<(String, Usage)> {
+        ClaudeClient::send_message(self, system_prompt, messages).await
+    }
+
+    async fn send_message_with_retries(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+        max_retries: u32,
+    ) -> Result<(String, Usage)> {
+        ClaudeClient::send_message_with_retries(self, system_prompt, messages, max_retries).await
+    }
+
+    async fn send_message_stream(
+        &self,
+        system_prompt: &str,
+        messages: &[ChatMessage],
+        chunk_tx: mpsc::Sender<String>,
+    ) -> Result<(String, Usage)> {
+        ClaudeClient::send_message_stream(self, system_prompt, messages, chunk_tx).await
+    }
+
+    fn provider_name(&self) -> &str {
+        "claude"
+    }
+
+    fn model_name(&self) -> &str {
+        &self.config.model
+    }
+}
+
 fn is_retryable(status_code: u16) -> bool {
     status_code == 429 || (500..600).contains(&status_code)
 }

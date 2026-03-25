@@ -1,15 +1,15 @@
 use serde_json::Value;
 
 use crate::api::types::{ChatMessage, MessageRole, Usage};
-use crate::api::client::ClaudeClient;
+use crate::api::provider::LlmProvider;
 use crate::error::{AgentError, Result};
 
 /// Validates a JSON string against a JSON schema, retrying with feedback on failure.
 ///
-/// If the response doesn't match the schema, sends the validation errors back to Claude
-/// as feedback, asking it to fix the output. Retries up to `max_retries` times.
+/// If the response doesn't match the schema, sends the validation errors back to the
+/// LLM as feedback, asking it to fix the output. Retries up to `max_retries` times.
 pub async fn validate_and_retry<T: serde::de::DeserializeOwned>(
-    client: &ClaudeClient,
+    client: &dyn LlmProvider,
     system_prompt: &str,
     original_messages: &[ChatMessage],
     response_text: &str,
@@ -93,7 +93,7 @@ pub async fn validate_and_retry<T: serde::de::DeserializeOwned>(
 }
 
 async fn retry_with_feedback(
-    client: &ClaudeClient,
+    client: &dyn LlmProvider,
     system_prompt: &str,
     original_messages: &[ChatMessage],
     previous_response: &str,
