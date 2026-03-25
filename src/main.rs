@@ -108,11 +108,17 @@ async fn main() -> anyhow::Result<()> {
     let target = cli.target.as_ref()
         .and_then(|t| TargetHost::parse_target(t))
         .unwrap_or(TargetHost::Local);
+    // Shared infra graph
+    let infra_graph: Arc<std::sync::RwLock<Option<InfraGraph>>> = Arc::new(std::sync::RwLock::new(None));
+
     let mut tool_registry = ToolRegistry::new();
-    tool_registry.register(Arc::new(ShellTool::new(target)));
+    tool_registry.register(Arc::new(ShellTool::new(target.clone())));
     tool_registry.register(Arc::new(FileOpsTool::new(None)));
     tool_registry.register(Arc::new(LogReaderTool::new()));
     tool_registry.register(Arc::new(CodeWriterTool::new()));
+    tool_registry.register(Arc::new(crate::tools::service::ServiceTool::new(
+        Arc::clone(&client), Arc::clone(&infra_graph), target,
+    )));
     let tool_registry = Arc::new(tool_registry);
 
     let guardian = Arc::new(GuardianAgent::new(
@@ -143,7 +149,15 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    // Load infra graph (if exists)
+    // Load infra graph into shared state (for ServiceTool)
+    if let Some(mem) = memory.as_ref() {
+        let conn = mem.connection().lock().unwrap();
+        if let Ok(Some(graph)) = InfraGraph::load_from_db(&conn) {
+            *infra_graph.write().unwrap() = Some(graph);
+        }
+    }
+
+    // Load infra context string (for CEO prompt)
     let infra_context = if let Some(mem) = memory.as_ref() {
         let conn = mem.connection().lock().unwrap();
         match InfraGraph::load_from_db(&conn) {

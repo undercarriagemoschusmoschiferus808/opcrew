@@ -17,6 +17,46 @@ pub struct InfraGraph {
     pub gaps: Vec<String>,
 }
 
+/// Free-form execution context — works with any runtime.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ExecutionContext {
+    /// Runtime type: "docker", "kubernetes", "podman", "systemd", "lxc", "nomad", "local", etc.
+    pub runtime: String,
+    /// Runtime-specific identifier: container name, pod name, unit name, etc.
+    pub identifier: String,
+    /// Additional context: namespace, host, user, image, etc.
+    #[serde(default)]
+    pub extra: std::collections::HashMap<String, String>,
+}
+
+impl ExecutionContext {
+    pub fn local() -> Self {
+        Self { runtime: "local".into(), identifier: String::new(), extra: Default::default() }
+    }
+
+    pub fn docker(container_name: &str) -> Self {
+        Self { runtime: "docker".into(), identifier: container_name.into(), extra: Default::default() }
+    }
+
+    pub fn kubernetes(namespace: &str, name: &str) -> Self {
+        let mut extra = std::collections::HashMap::new();
+        extra.insert("namespace".into(), namespace.into());
+        Self { runtime: "kubernetes".into(), identifier: name.into(), extra }
+    }
+
+    /// Format for LLM translation prompt.
+    pub fn to_prompt_string(&self) -> String {
+        let mut s = format!("runtime: {}", self.runtime);
+        if !self.identifier.is_empty() {
+            s.push_str(&format!(", identifier: {}", self.identifier));
+        }
+        for (k, v) in &self.extra {
+            s.push_str(&format!(", {k}: {v}"));
+        }
+        s
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Service {
     pub name: String,
@@ -28,6 +68,8 @@ pub struct Service {
     pub health_check: Option<String>,
     pub service_type: ServiceType,
     pub discovered_via: DiscoveryMethod,
+    #[serde(default)]
+    pub execution_context: ExecutionContext,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -77,7 +119,7 @@ impl InfraGraph {
 
     pub fn load_from_db(conn: &Connection) -> Result<Option<Self>> {
         let mut stmt = conn
-            .prepare("SELECT name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via, discovered_at FROM infra_services")
+            .prepare("SELECT name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via, discovered_at, execution_context FROM infra_services")
             .map_err(|e| AgentError::InfraError(format!("Prepare: {e}")))?;
 
         let services: Vec<Service> = stmt
@@ -94,6 +136,10 @@ impl InfraGraph {
                     health_check: row.get(6)?,
                     service_type: parse_service_type(&row.get::<_, String>(7)?),
                     discovered_via: parse_discovery_method(&row.get::<_, String>(8)?),
+                    execution_context: {
+                        let ctx_json: String = row.get::<_, String>(10).unwrap_or_default();
+                        serde_json::from_str(&ctx_json).unwrap_or_default()
+                    },
                 })
             })
             .map_err(|e| AgentError::InfraError(format!("Query: {e}")))?
@@ -144,13 +190,14 @@ impl InfraGraph {
         for svc in self.services.values() {
             let log_paths_json = serde_json::to_string(&svc.log_paths).unwrap_or_default();
             let config_paths_json = serde_json::to_string(&svc.config_paths).unwrap_or_default();
+            let ctx_json = serde_json::to_string(&svc.execution_context).unwrap_or_default();
             conn.execute(
-                "INSERT INTO infra_services (id, name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via, discovered_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)",
+                "INSERT INTO infra_services (id, name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via, discovered_at, updated_at, execution_context) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11, ?12)",
                 rusqlite::params![
                     Uuid::new_v4().to_string(), svc.name, svc.host, svc.port, svc.process_name,
                     log_paths_json, config_paths_json, svc.health_check,
                     format!("{:?}", svc.service_type), format!("{:?}", svc.discovered_via),
-                    now
+                    now, ctx_json
                 ],
             ).map_err(|e| AgentError::InfraError(format!("Save service: {e}")))?;
         }
@@ -277,6 +324,7 @@ mod tests {
                 health_check: Some("curl -s localhost:80".into()),
                 service_type: ServiceType::LoadBalancer,
                 discovered_via: DiscoveryMethod::Systemd,
+                execution_context: ExecutionContext::local(),
             },
         );
         graph.services.insert(
@@ -291,6 +339,7 @@ mod tests {
                 health_check: None,
                 service_type: ServiceType::Web,
                 discovered_via: DiscoveryMethod::Process,
+                execution_context: ExecutionContext::local(),
             },
         );
         graph.dependencies.push(Dependency {
@@ -316,11 +365,13 @@ mod tests {
             name: "a".into(), host: "localhost".into(), port: None, process_name: None,
             log_paths: vec![], config_paths: vec![], health_check: None,
             service_type: ServiceType::Web, discovered_via: DiscoveryMethod::Process,
+            execution_context: ExecutionContext::local(),
         });
         graph.services.insert("b".into(), Service {
             name: "b".into(), host: "localhost".into(), port: None, process_name: None,
             log_paths: vec![], config_paths: vec![], health_check: None,
             service_type: ServiceType::Database, discovered_via: DiscoveryMethod::Process,
+            execution_context: ExecutionContext::local(),
         });
         graph.dependencies.push(Dependency {
             from: "a".into(), to: "b".into(),
@@ -344,6 +395,7 @@ mod tests {
             process_name: None, log_paths: vec!["/var/log/nginx/".into()],
             config_paths: vec![], health_check: None,
             service_type: ServiceType::LoadBalancer, discovered_via: DiscoveryMethod::Systemd,
+            execution_context: ExecutionContext::local(),
         });
         graph.hosts = vec!["localhost".into()];
 

@@ -528,7 +528,16 @@ fn parse_service_from_value(v: &serde_json::Value) -> Option<Service> {
         _ => DiscoveryMethod::Process,
     };
 
-    Some(Service { name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via })
+    // Infer execution context from discovery method and name
+    let execution_context = match discovered_via {
+        DiscoveryMethod::Docker => crate::infra::graph::ExecutionContext::docker(&name),
+        DiscoveryMethod::Systemd => crate::infra::graph::ExecutionContext {
+            runtime: "systemd".into(), identifier: name.clone(), extra: Default::default(),
+        },
+        _ => crate::infra::graph::ExecutionContext::local(),
+    };
+
+    Some(Service { name, host, port, process_name, log_paths, config_paths, health_check, service_type, discovered_via, execution_context })
 }
 
 // ─── Post-processing: resolve unknowns from raw ss/docker data ───

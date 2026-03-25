@@ -133,10 +133,23 @@ To use a tool, output a JSON object:
 {{"tool": "tool_name", "action": "action_name", "args": {{"key": "value"}}}}
 
 Tool reference:
-- shell: {{"tool": "shell", "action": "run", "args": {{"command": "your command here"}}}}
-- file_ops: {{"tool": "file_ops", "action": "read|write|list|exists|delete", "args": {{"path": "/path", "content": "..."}}}}
-- log_reader: {{"tool": "log_reader", "action": "read|search", "args": {{"path": "/path", "lines": "100", "pattern": "error"}}}}
-- code_writer: {{"tool": "code_writer", "action": "create|edit", "args": {{"path": "/path", "content": "...", "old_text": "...", "new_text": "..."}}}}
+
+SERVICE TOOL (use this for anything related to a known service):
+- {{"tool": "service", "action": "logs", "args": {{"service": "nginx", "lines": "50"}}}}
+- {{"tool": "service", "action": "status", "args": {{"service": "nginx"}}}}
+- {{"tool": "service", "action": "config", "args": {{"service": "nginx"}}}}
+- {{"tool": "service", "action": "restart", "args": {{"service": "nginx"}}}}
+- {{"tool": "service", "action": "stop", "args": {{"service": "nginx"}}}}
+- {{"tool": "service", "action": "start", "args": {{"service": "nginx"}}}}
+- {{"tool": "service", "action": "edit_config", "args": {{"service": "nginx", "file": "default.conf", "old": "old text", "new": "new text"}}}}
+- {{"tool": "service", "action": "exec", "args": {{"service": "nginx", "command": "nginx -t"}}}}
+- {{"tool": "service", "action": "env", "args": {{"service": "nginx"}}}}
+The service tool auto-detects if the service runs in Docker, K8s, systemd, etc. Use it instead of raw shell for services.
+
+GENERAL TOOLS (for non-service-specific commands):
+- {{"tool": "shell", "action": "run", "args": {{"command": "df -h"}}}}
+- {{"tool": "file_ops", "action": "read|write|list", "args": {{"path": "/path", "content": "..."}}}}
+- {{"tool": "log_reader", "action": "read|search", "args": {{"path": "/path", "lines": "100", "pattern": "error"}}}}
 
 RULES:
 - Output ONLY the JSON tool call, nothing else. No explanation before or after.

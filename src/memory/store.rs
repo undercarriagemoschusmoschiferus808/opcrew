@@ -340,7 +340,8 @@ CREATE TABLE IF NOT EXISTS infra_services (
     service_type TEXT NOT NULL,
     discovered_via TEXT NOT NULL,
     discovered_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    execution_context TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS infra_dependencies (
