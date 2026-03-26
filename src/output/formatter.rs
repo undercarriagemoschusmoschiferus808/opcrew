@@ -143,15 +143,9 @@ impl OutputFormatter {
 
         let mut out = String::new();
         out.push_str(&format!("\n{}\n", "=".repeat(60).red()));
-        out.push_str(&format!(
-            "  {}\n",
-            "ESCALATION REQUIRED".bold().red()
-        ));
+        out.push_str(&format!("  {}\n", "ESCALATION REQUIRED".bold().red()));
         out.push_str(&format!("{}\n", "=".repeat(60).red()));
-        out.push_str(&format!(
-            "  I attempted to resolve: {}\n",
-            problem
-        ));
+        out.push_str(&format!("  I attempted to resolve: {}\n", problem));
         out.push_str(&format!(
             "  Rounds attempted: {}/{}\n\n",
             rounds_info.len(),
@@ -159,11 +153,7 @@ impl OutputFormatter {
         ));
 
         for (round, summary) in rounds_info {
-            out.push_str(&format!(
-                "  Round {}: {}\n",
-                round,
-                summary
-            ));
+            out.push_str(&format!("  Round {}: {}\n", round, summary));
         }
 
         out.push_str(&format!(
@@ -206,12 +196,7 @@ impl OutputFormatter {
         if healthy == total {
             format!("  {} All {} checks healthy", "✓".green(), total)
         } else {
-            format!(
-                "  {} {}/{} checks healthy",
-                "!".yellow(),
-                healthy,
-                total
-            )
+            format!("  {} {}/{} checks healthy", "!".yellow(), healthy, total)
         }
     }
 }

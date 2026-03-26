@@ -10,10 +10,10 @@ use crate::api::types::{ChatMessage, MessageRole};
 use crate::domain::agent::{AgentBehavior, AgentConfig, AgentOutput};
 use crate::error::Result;
 use crate::execution::budget::TokenBudget;
+use crate::observability::metrics::Metrics;
 use crate::safety::guardian::{GuardianAgent, ReviewDecision};
 use crate::safety::secrets::SecretMasker;
 use crate::tools::registry::ToolRegistry;
-use crate::observability::metrics::Metrics;
 use crate::tools::traits::ToolParams;
 
 /// A specialist agent that executes tasks autonomously using tools.
@@ -83,7 +83,11 @@ impl SpecialistAgent {
 
             // Try to consume estimated tokens
             let estimated = 2000u32;
-            if self.budget.try_consume(&agent_id, estimated, approaching).is_err() {
+            if self
+                .budget
+                .try_consume(&agent_id, estimated, approaching)
+                .is_err()
+            {
                 tracing::warn!(agent = %self.config.role, "Budget exceeded");
                 break;
             }
@@ -98,7 +102,8 @@ impl SpecialistAgent {
                 })?;
 
             let actual_tokens = usage.input_tokens + usage.output_tokens;
-            self.budget.adjust_actual(&agent_id, estimated, actual_tokens);
+            self.budget
+                .adjust_actual(&agent_id, estimated, actual_tokens);
             total_tokens += actual_tokens;
 
             // Mask secrets in response before adding to conversation
@@ -113,13 +118,20 @@ impl SpecialistAgent {
                 response_preview = %&response[..response.len().min(300)], "Agent response");
             if let Some(tool_call) = extract_tool_call(&response) {
                 // Real-time progress: show what's being executed
-                let cmd_preview = tool_call.args.get("command")
+                let cmd_preview = tool_call
+                    .args
+                    .get("command")
                     .or(tool_call.args.get("path"))
                     .cloned()
                     .unwrap_or_else(|| tool_call.action.clone());
                 let preview = &cmd_preview[..cmd_preview.len().min(80)];
-                eprintln!("  {} [{}] {} {}",
-                    "→".dimmed(), self.config.role.cyan(), tool_call.tool_name, preview.dimmed());
+                eprintln!(
+                    "  {} [{}] {} {}",
+                    "→".dimmed(),
+                    self.config.role.cyan(),
+                    tool_call.tool_name,
+                    preview.dimmed()
+                );
                 tracing::info!(agent = %self.config.role, tool = %tool_call.tool_name,
                     action = %tool_call.action, "Tool call detected");
                 // Guardian review
@@ -139,13 +151,15 @@ impl SpecialistAgent {
                         // Execute the tool
                         match self.tools.get(&tool_call.tool_name) {
                             Ok(tool) => {
-                                let result = tool
-                                    .execute(&tool_call, Duration::from_secs(60))
-                                    .await;
+                                let result =
+                                    tool.execute(&tool_call, Duration::from_secs(60)).await;
                                 let result_text = match result {
                                     Ok(r) => {
                                         if r.success {
-                                            format!("Tool output:\n{}", self.masker.mask_string(&r.output))
+                                            format!(
+                                                "Tool output:\n{}",
+                                                self.masker.mask_string(&r.output)
+                                            )
                                         } else {
                                             format!("Tool error:\n{}", r.error.unwrap_or_default())
                                         }
@@ -197,12 +211,10 @@ impl SpecialistAgent {
             if conversation.len() > 20 {
                 let summary = summarize_conversation(&conversation[..10]);
                 let remaining: Vec<ChatMessage> = conversation[10..].to_vec();
-                conversation = vec![
-                    ChatMessage {
-                        role: MessageRole::User,
-                        content: format!("Previous context summary:\n{summary}\n\n{task_input}"),
-                    },
-                ];
+                conversation = vec![ChatMessage {
+                    role: MessageRole::User,
+                    content: format!("Previous context summary:\n{summary}\n\n{task_input}"),
+                }];
                 conversation.extend(remaining);
             }
         }

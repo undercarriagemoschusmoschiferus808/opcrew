@@ -17,7 +17,10 @@ impl SystemContext {
         if self.data.is_empty() {
             return String::new();
         }
-        let mut out = format!("SYSTEM CONTEXT (pre-fetched in {}ms):\n\n", self.fetch_duration_ms);
+        let mut out = format!(
+            "SYSTEM CONTEXT (pre-fetched in {}ms):\n\n",
+            self.fetch_duration_ms
+        );
         for (label, output) in &self.data {
             let truncated = &output[..output.len().min(1500)];
             out.push_str(&format!("### {label}\n```\n{truncated}\n```\n\n"));
@@ -27,13 +30,19 @@ impl SystemContext {
 }
 
 /// Compute which commands to pre-fetch based on the problem text + infra graph.
-fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(&'static str, String)> {
+fn compute_prefetch_commands(
+    problem: &str,
+    infra: Option<&InfraGraph>,
+) -> Vec<(&'static str, String)> {
     let lower = problem.to_lowercase();
     let mut commands: Vec<(&str, String)> = vec![
         ("memory", "free -m".into()),
         ("disk", "df -h".into()),
         ("uptime", "uptime".into()),
-        ("failed_services", "systemctl list-units --failed --no-pager --no-legend".into()),
+        (
+            "failed_services",
+            "systemctl list-units --failed --no-pager --no-legend".into(),
+        ),
     ];
 
     // ─── Docker context ───
@@ -44,32 +53,54 @@ fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(
         if let Some(name) = extract_name_from_problem(&lower, &["container", "docker"]) {
             commands.push(("container_logs", format!("docker logs {name} --tail 50")));
             commands.push(("container_inspect", format!("docker inspect {name}")));
-            commands.push(("container_events", format!("docker events --since 5m --until 0s --filter container={name} --format json")));
+            commands.push((
+                "container_events",
+                format!(
+                    "docker events --since 5m --until 0s --filter container={name} --format json"
+                ),
+            ));
         }
     }
 
     // ─── Kubernetes context ───
-    if lower.contains("pod") || lower.contains("k8s") || lower.contains("kube")
-        || lower.contains("deployment") || lower.contains("namespace")
+    if lower.contains("pod")
+        || lower.contains("k8s")
+        || lower.contains("kube")
+        || lower.contains("deployment")
+        || lower.contains("namespace")
     {
         commands.push(("k8s_pods", "kubectl get pods -A --no-headers".into()));
-        commands.push(("k8s_events", "kubectl get events -A --sort-by=.lastTimestamp --no-headers".into()));
+        commands.push((
+            "k8s_events",
+            "kubectl get events -A --sort-by=.lastTimestamp --no-headers".into(),
+        ));
         commands.push(("k8s_failed", "kubectl get pods -A --no-headers --field-selector=status.phase!=Running,status.phase!=Succeeded".into()));
 
         if let Some(ns) = extract_name_from_problem(&lower, &["namespace"]) {
             commands.push(("k8s_ns_pods", format!("kubectl get pods -n {ns} -o wide")));
-            commands.push(("k8s_ns_events", format!("kubectl get events -n {ns} --sort-by=.lastTimestamp")));
+            commands.push((
+                "k8s_ns_events",
+                format!("kubectl get events -n {ns} --sort-by=.lastTimestamp"),
+            ));
         }
     }
 
     // ─── Disk context ───
-    if lower.contains("disk") || lower.contains("full") || lower.contains("space") || lower.contains("storage") {
+    if lower.contains("disk")
+        || lower.contains("full")
+        || lower.contains("space")
+        || lower.contains("storage")
+    {
         commands.push(("disk_usage_root", "du -sh /* 2>/dev/null".into()));
     }
 
     // ─── Network/service context ───
-    if lower.contains("502") || lower.contains("503") || lower.contains("timeout")
-        || lower.contains("connection") || lower.contains("port") || lower.contains("unreachable")
+    if lower.contains("502")
+        || lower.contains("503")
+        || lower.contains("timeout")
+        || lower.contains("connection")
+        || lower.contains("port")
+        || lower.contains("unreachable")
     {
         commands.push(("listening_ports", "ss -tlnp".into()));
     }
@@ -77,7 +108,10 @@ fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(
     // ─── Specific service context ───
     if lower.contains("nginx") {
         commands.push(("nginx_status", "systemctl status nginx".into()));
-        commands.push(("nginx_error_log", "tail -30 /var/log/nginx/error.log".into()));
+        commands.push((
+            "nginx_error_log",
+            "tail -30 /var/log/nginx/error.log".into(),
+        ));
     }
     if lower.contains("postgres") || lower.contains("pg") || lower.contains("database") {
         commands.push(("pg_status", "systemctl status postgresql".into()));
@@ -87,7 +121,11 @@ fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(
     }
 
     // ─── CPU/memory context ───
-    if lower.contains("cpu") || lower.contains("slow") || lower.contains("high load") || lower.contains("performance") {
+    if lower.contains("cpu")
+        || lower.contains("slow")
+        || lower.contains("high load")
+        || lower.contains("performance")
+    {
         commands.push(("top_cpu", "ps aux --sort=-pcpu --no-headers".into()));
     }
     if lower.contains("oom") || lower.contains("memory") || lower.contains("killed") {
@@ -96,16 +134,21 @@ fn compute_prefetch_commands(problem: &str, infra: Option<&InfraGraph>) -> Vec<(
 
     // ─── Infra graph dependencies ───
     if let Some(graph) = infra
-        && let Some(service_name) = extract_any_service_name(&lower, graph) {
-            for dep in graph.dependencies_of(&service_name) {
-                if let Some(port) = dep.port {
-                    commands.push(("dep_port_check", format!("ss -tlnp sport = :{port}")));
-                }
+        && let Some(service_name) = extract_any_service_name(&lower, graph)
+    {
+        for dep in graph.dependencies_of(&service_name) {
+            if let Some(port) = dep.port {
+                commands.push(("dep_port_check", format!("ss -tlnp sport = :{port}")));
             }
         }
+    }
 
     // ─── Kernel messages (always useful for crashes) ───
-    if lower.contains("crash") || lower.contains("restart") || lower.contains("killed") || lower.contains("oom") {
+    if lower.contains("crash")
+        || lower.contains("restart")
+        || lower.contains("killed")
+        || lower.contains("oom")
+    {
         commands.push(("dmesg_recent", "dmesg -T --since '10 min ago'".into()));
     }
 
@@ -157,7 +200,11 @@ pub async fn prefetch_system_context(
     }
 
     let duration = start.elapsed().as_millis() as u64;
-    tracing::info!(commands = data.len(), duration_ms = duration, "Pre-fetch complete");
+    tracing::info!(
+        commands = data.len(),
+        duration_ms = duration,
+        "Pre-fetch complete"
+    );
 
     SystemContext {
         data,
@@ -173,7 +220,8 @@ fn extract_name_from_problem(lower: &str, keywords: &[&str]) -> Option<String> {
             let after = &lower[pos + kw.len()..];
             let after = after.trim_start();
             let after = after.strip_prefix("named ").unwrap_or(after);
-            let name: String = after.chars()
+            let name: String = after
+                .chars()
                 .take_while(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
                 .collect();
             if name.len() >= 2 {
@@ -230,7 +278,8 @@ mod tests {
 
     #[test]
     fn commands_for_k8s_problem() {
-        let cmds = compute_prefetch_commands("pod payment-service in namespace test is failing", None);
+        let cmds =
+            compute_prefetch_commands("pod payment-service in namespace test is failing", None);
         let labels: Vec<&str> = cmds.iter().map(|(l, _)| *l).collect();
         assert!(labels.contains(&"k8s_pods"));
         assert!(labels.contains(&"k8s_ns_pods"));

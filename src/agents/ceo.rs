@@ -6,7 +6,7 @@ use crate::api::provider::LlmProvider;
 use crate::api::schema::validate_and_retry;
 use crate::api::types::{ChatMessage, MessageRole};
 use crate::domain::agent::{AgentBehavior, AgentConfig, AgentId, AgentOutput};
-use crate::domain::plan::{plan_json_schema, Plan};
+use crate::domain::plan::{Plan, plan_json_schema};
 use crate::error::{AgentError, Result};
 
 pub struct CeoAgent {
@@ -37,9 +37,7 @@ impl CeoAgent {
     pub async fn create_plan(&self, problem: &str) -> Result<Plan> {
         let messages = vec![ChatMessage {
             role: MessageRole::User,
-            content: format!(
-                "Analyze this problem and create an execution plan:\n\n{problem}"
-            ),
+            content: format!("Analyze this problem and create an execution plan:\n\n{problem}"),
         }];
 
         let (response, _usage) = self
@@ -65,14 +63,8 @@ impl CeoAgent {
 
     /// Synthesize results from all agents into a final report.
     /// Uses incremental summaries to keep context bounded.
-    pub async fn synthesize(
-        &self,
-        problem: &str,
-        level_summaries: &[String],
-    ) -> Result<String> {
-        let mut prompt = format!(
-            "## Original Problem\n\n{problem}\n\n## Work Completed\n\n"
-        );
+    pub async fn synthesize(&self, problem: &str, level_summaries: &[String]) -> Result<String> {
+        let mut prompt = format!("## Original Problem\n\n{problem}\n\n## Work Completed\n\n");
 
         for (i, summary) in level_summaries.iter().enumerate() {
             prompt.push_str(&format!("### Phase {}\n\n{summary}\n\n---\n\n", i + 1));
@@ -101,17 +93,15 @@ impl CeoAgent {
     }
 
     /// Summarize results from one execution level (for incremental synthesis).
-    pub async fn summarize_level(
-        &self,
-        level: usize,
-        outputs: &[AgentOutput],
-    ) -> Result<String> {
+    pub async fn summarize_level(&self, level: usize, outputs: &[AgentOutput]) -> Result<String> {
         if outputs.is_empty() {
             return Ok(format!("Level {level}: No results"));
         }
 
-        let mut prompt = format!("Summarize the work from these {n} agents into a concise paragraph:\n\n",
-            n = outputs.len());
+        let mut prompt = format!(
+            "Summarize the work from these {n} agents into a concise paragraph:\n\n",
+            n = outputs.len()
+        );
 
         for output in outputs {
             prompt.push_str(&format!(
@@ -122,7 +112,8 @@ impl CeoAgent {
             ));
         }
 
-        prompt.push_str("Keep the summary under 500 words. Preserve key findings and actions taken.");
+        prompt
+            .push_str("Keep the summary under 500 words. Preserve key findings and actions taken.");
 
         let messages = vec![ChatMessage {
             role: MessageRole::User,
@@ -152,12 +143,7 @@ impl AgentBehavior for CeoAgent {
         let content = serde_json::to_string_pretty(&plan)
             .map_err(|e| AgentError::PlanningError(e.to_string()))?;
 
-        Ok(AgentOutput::new(
-            self.config.id.clone(),
-            "CEO".into(),
-            content,
-        )
-        .with_confidence(0.9))
+        Ok(AgentOutput::new(self.config.id.clone(), "CEO".into(), content).with_confidence(0.9))
     }
 }
 

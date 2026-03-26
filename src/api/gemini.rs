@@ -74,8 +74,9 @@ struct GeminiUsage {
 
 impl GeminiClient {
     pub fn new(config: &Config, model_override: Option<String>) -> Result<Self> {
-        let api_key = std::env::var("GEMINI_API_KEY")
-            .map_err(|_| AgentError::ConfigError("GEMINI_API_KEY is required for --provider gemini".into()))?;
+        let api_key = std::env::var("GEMINI_API_KEY").map_err(|_| {
+            AgentError::ConfigError("GEMINI_API_KEY is required for --provider gemini".into())
+        })?;
         let model = model_override
             .or_else(|| std::env::var("GEMINI_MODEL").ok())
             .unwrap_or_else(|| "gemini-2.5-flash".into());
@@ -103,13 +104,18 @@ impl GeminiClient {
         )
     }
 
-    fn convert_messages(system_prompt: &str, messages: &[ChatMessage]) -> (Option<GeminiContent>, Vec<GeminiContent>) {
+    fn convert_messages(
+        system_prompt: &str,
+        messages: &[ChatMessage],
+    ) -> (Option<GeminiContent>, Vec<GeminiContent>) {
         let system = if system_prompt.is_empty() {
             None
         } else {
             Some(GeminiContent {
                 role: "user".into(),
-                parts: vec![GeminiPart { text: system_prompt.into() }],
+                parts: vec![GeminiPart {
+                    text: system_prompt.into(),
+                }],
             })
         };
 
@@ -120,7 +126,9 @@ impl GeminiClient {
                     MessageRole::User => "user".into(),
                     MessageRole::Assistant => "model".into(),
                 },
-                parts: vec![GeminiPart { text: m.content.clone() }],
+                parts: vec![GeminiPart {
+                    text: m.content.clone(),
+                }],
             })
             .collect();
 
@@ -135,7 +143,8 @@ impl LlmProvider for GeminiClient {
         system_prompt: &str,
         messages: &[ChatMessage],
     ) -> Result<(String, Usage)> {
-        self.send_message_with_retries(system_prompt, messages, 3).await
+        self.send_message_with_retries(system_prompt, messages, 3)
+            .await
     }
 
     async fn send_message_with_retries(
@@ -162,7 +171,8 @@ impl LlmProvider for GeminiClient {
                 },
             };
 
-            let response = self.http
+            let response = self
+                .http
                 .post(self.endpoint())
                 .header("Content-Type", "application/json")
                 .json(&request)
@@ -186,18 +196,25 @@ impl LlmProvider for GeminiClient {
                 });
             }
 
-            let parsed: GeminiResponse = serde_json::from_str(&body)
-                .map_err(AgentError::SerializationError)?;
+            let parsed: GeminiResponse =
+                serde_json::from_str(&body).map_err(AgentError::SerializationError)?;
 
-            let text = parsed.candidates
+            let text = parsed
+                .candidates
                 .as_ref()
                 .and_then(|c| c.first())
                 .map(|c| {
-                    c.content.parts.iter().map(|p| p.text.as_str()).collect::<Vec<_>>().join("")
+                    c.content
+                        .parts
+                        .iter()
+                        .map(|p| p.text.as_str())
+                        .collect::<Vec<_>>()
+                        .join("")
                 })
                 .unwrap_or_default();
 
-            let usage = parsed.usage_metadata
+            let usage = parsed
+                .usage_metadata
                 .map(|u| Usage {
                     input_tokens: u.prompt_token_count.unwrap_or(0),
                     output_tokens: u.candidates_token_count.unwrap_or(0),

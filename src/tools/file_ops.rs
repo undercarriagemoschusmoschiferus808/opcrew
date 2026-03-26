@@ -8,7 +8,14 @@ use crate::error::{AgentError, Result};
 
 /// Hardcoded denylist — independent of Guardian. Defense in depth.
 const DENIED_PATHS: &[&str] = &[
-    "/etc/", "/boot/", "/sys/", "/proc/", "/dev/", "/sbin/", "/usr/sbin/", "/root/",
+    "/etc/",
+    "/boot/",
+    "/sys/",
+    "/proc/",
+    "/dev/",
+    "/sbin/",
+    "/usr/sbin/",
+    "/root/",
 ];
 
 pub struct FileOpsTool {
@@ -17,7 +24,9 @@ pub struct FileOpsTool {
 
 impl FileOpsTool {
     pub fn new(allowed_write_roots: Option<Vec<String>>) -> Self {
-        Self { allowed_write_roots }
+        Self {
+            allowed_write_roots,
+        }
     }
 
     pub fn is_path_allowed(path: &str) -> bool {
@@ -65,10 +74,13 @@ impl Tool for FileOpsTool {
         let start = Instant::now();
 
         let action = params.action.as_str();
-        let path = params.args.get("path").ok_or_else(|| AgentError::ToolExecutionError {
-            tool: "file_ops".into(),
-            message: "Missing 'path' argument".into(),
-        })?;
+        let path = params
+            .args
+            .get("path")
+            .ok_or_else(|| AgentError::ToolExecutionError {
+                tool: "file_ops".into(),
+                message: "Missing 'path' argument".into(),
+            })?;
 
         // Denylist check
         if !Self::is_path_allowed(path) {
@@ -114,12 +126,14 @@ impl Tool for FileOpsTool {
                             message: format!("List failed: {e}"),
                         }
                     })?;
-                    while let Some(entry) = dir.next_entry().await.map_err(|e| {
-                        AgentError::ToolExecutionError {
-                            tool: "file_ops".into(),
-                            message: format!("Read entry: {e}"),
-                        }
-                    })? {
+                    while let Some(entry) =
+                        dir.next_entry()
+                            .await
+                            .map_err(|e| AgentError::ToolExecutionError {
+                                tool: "file_ops".into(),
+                                message: format!("Read entry: {e}"),
+                            })?
+                    {
                         entries.push(entry.file_name().to_string_lossy().to_string());
                     }
                     entries.sort();
@@ -192,8 +206,7 @@ mod tests {
         let params = ToolParams {
             tool_name: "file_ops".into(),
             action: "read".into(),
-            args: [("path".into(), "/tmp/nonexistent_test_file_12345".into())]
-                .into(),
+            args: [("path".into(), "/tmp/nonexistent_test_file_12345".into())].into(),
         };
         let result = tool.execute(&params, Duration::from_secs(5)).await;
         assert!(result.is_err());

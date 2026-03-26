@@ -7,9 +7,9 @@ use crate::domain::squad::Squad;
 use crate::domain::task::{Task, TaskId};
 use crate::error::Result;
 use crate::execution::budget::TokenBudget;
-use crate::safety::guardian::GuardianAgent;
 use crate::infra::graph::InfraGraph;
 use crate::observability::metrics::Metrics;
+use crate::safety::guardian::GuardianAgent;
 use crate::safety::secrets::SecretMasker;
 use crate::tools::registry::ToolRegistry;
 
@@ -131,7 +131,8 @@ impl AgentFactory {
             _ => return String::new(),
         };
 
-        let mut catalog = String::from("KNOWN SERVICES (use these exact names with the service tool):\n");
+        let mut catalog =
+            String::from("KNOWN SERVICES (use these exact names with the service tool):\n");
         for svc in graph.services.values() {
             let port = svc.port.map(|p| format!(":{p}")).unwrap_or_default();
             catalog.push_str(&format!(

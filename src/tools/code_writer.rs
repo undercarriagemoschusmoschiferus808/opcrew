@@ -32,10 +32,13 @@ impl Tool for CodeWriterTool {
     async fn execute(&self, params: &ToolParams, timeout: Duration) -> Result<ToolResult> {
         let start = Instant::now();
         let action = params.action.as_str();
-        let path = params.args.get("path").ok_or_else(|| AgentError::ToolExecutionError {
-            tool: "code_writer".into(),
-            message: "Missing 'path' argument".into(),
-        })?;
+        let path = params
+            .args
+            .get("path")
+            .ok_or_else(|| AgentError::ToolExecutionError {
+                tool: "code_writer".into(),
+                message: "Missing 'path' argument".into(),
+            })?;
 
         // Denylist check (inherits from FileOpsTool)
         if !FileOpsTool::is_path_allowed(path) {

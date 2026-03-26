@@ -12,15 +12,9 @@ pub enum RouteDecision {
         score: u32,
     },
     /// Simple problem — 1 agent, top hypothesis, confirm + fix.
-    FastPath {
-        score: u32,
-        reasons: Vec<String>,
-    },
+    FastPath { score: u32, reasons: Vec<String> },
     /// Complex problem — full CEO → squad → verifier pipeline.
-    FullPipeline {
-        score: u32,
-        reasons: Vec<String>,
-    },
+    FullPipeline { score: u32, reasons: Vec<String> },
 }
 
 impl RouteDecision {
@@ -32,7 +26,9 @@ impl RouteDecision {
 impl std::fmt::Display for RouteDecision {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::MemoryReplay { approach, score, .. } => {
+            Self::MemoryReplay {
+                approach, score, ..
+            } => {
                 write!(f, "MemoryReplay (score: {score}) — replaying: {approach}")
             }
             Self::FastPath { score, reasons } => {
@@ -67,8 +63,12 @@ pub fn compute_route(
             if stat.success_rate() > 0.7 && stat.total_tries() >= 2 {
                 return RouteDecision::MemoryReplay {
                     approach: stat.approach.clone(),
-                    solution: format!("Previously worked {}/{} times ({:.0}%)",
-                        stat.times_succeeded, stat.total_tries(), stat.success_rate() * 100.0),
+                    solution: format!(
+                        "Previously worked {}/{} times ({:.0}%)",
+                        stat.times_succeeded,
+                        stat.total_tries(),
+                        stat.success_rate() * 100.0
+                    ),
                     score: 95,
                 };
             }
@@ -95,10 +95,15 @@ pub fn compute_route(
         Complexity::Complex => 0.0,
     };
     score += complexity_score * 0.25;
-    reasons.push(format!("complexity={:?}({:.0})", report.estimated_complexity, complexity_score));
+    reasons.push(format!(
+        "complexity={:?}({:.0})",
+        report.estimated_complexity, complexity_score
+    ));
 
     // Signal 2: Top hypothesis confidence (25%)
-    let confidence_score = report.hypotheses.first()
+    let confidence_score = report
+        .hypotheses
+        .first()
         .map(|h| h.probability * 100.0)
         .unwrap_or(30.0);
     score += confidence_score * 0.25;
@@ -115,7 +120,9 @@ pub fn compute_route(
     reasons.push(format!("services={service_keywords}"));
 
     // Signal 4: Simple confirm command (15%)
-    let confirm_score = report.hypotheses.first()
+    let confirm_score = report
+        .hypotheses
+        .first()
         .map(|h| {
             if ShellTool::has_composition(&h.confirm_by) {
                 0.0 // Needs pipes/&& → complex
@@ -133,7 +140,8 @@ pub fn compute_route(
     let memory_score = if approach_stats.is_empty() {
         50.0 // No data, neutral
     } else {
-        let best = approach_stats.iter()
+        let best = approach_stats
+            .iter()
             .map(|s| s.success_rate())
             .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .unwrap_or(0.0);
@@ -147,9 +155,15 @@ pub fn compute_route(
     let final_score = score as u32;
 
     if final_score >= 60 {
-        RouteDecision::FastPath { score: final_score, reasons }
+        RouteDecision::FastPath {
+            score: final_score,
+            reasons,
+        }
     } else {
-        RouteDecision::FullPipeline { score: final_score, reasons }
+        RouteDecision::FullPipeline {
+            score: final_score,
+            reasons,
+        }
     }
 }
 
@@ -157,10 +171,25 @@ pub fn compute_route(
 fn count_service_keywords(problem: &str) -> usize {
     let lower = problem.to_lowercase();
     let keywords = [
-        "nginx", "apache", "haproxy", "caddy", "traefik",
-        "postgres", "mysql", "redis", "mongo", "elasticsearch",
-        "docker", "container", "pod", "deployment", "service",
-        "kubelet", "node", "k8s", "kubernetes",
+        "nginx",
+        "apache",
+        "haproxy",
+        "caddy",
+        "traefik",
+        "postgres",
+        "mysql",
+        "redis",
+        "mongo",
+        "elasticsearch",
+        "docker",
+        "container",
+        "pod",
+        "deployment",
+        "service",
+        "kubelet",
+        "node",
+        "k8s",
+        "kubernetes",
     ];
     keywords.iter().filter(|kw| lower.contains(*kw)).count()
 }
@@ -196,7 +225,12 @@ mod tests {
     #[test]
     fn complex_low_confidence_routes_full() {
         let report = make_report(Complexity::Complex, 0.2, "check multiple services");
-        let decision = compute_route("everything is slow across all services", Some(&report), &[], false);
+        let decision = compute_route(
+            "everything is slow across all services",
+            Some(&report),
+            &[],
+            false,
+        );
         assert!(!decision.is_fast());
     }
 

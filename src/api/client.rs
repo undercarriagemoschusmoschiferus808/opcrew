@@ -7,9 +7,7 @@ use governor::{Quota, RateLimiter};
 use reqwest::Client;
 use tokio::sync::mpsc;
 
-use crate::api::types::{
-    ChatMessage, ClaudeRequest, ClaudeResponse, StreamEvent, Usage,
-};
+use crate::api::types::{ChatMessage, ClaudeRequest, ClaudeResponse, StreamEvent, Usage};
 use crate::config::Config;
 use crate::error::{AgentError, Result};
 
@@ -68,9 +66,7 @@ impl ClaudeClient {
             }
 
             // Wait for rate limiter
-            self.rate_limiter
-                .until_ready()
-                .await;
+            self.rate_limiter.until_ready().await;
 
             match self.send_request(system_prompt, messages, false).await {
                 Ok(response) => {
@@ -82,12 +78,7 @@ impl ClaudeClient {
                     status_code,
                     ref message,
                 }) if is_retryable(status_code) => {
-                    tracing::warn!(
-                        attempt,
-                        status_code,
-                        message,
-                        "Retryable API error"
-                    );
+                    tracing::warn!(attempt, status_code, message, "Retryable API error");
                     last_error = Some(AgentError::ApiError {
                         status_code,
                         message: message.clone(),
@@ -97,11 +88,9 @@ impl ClaudeClient {
             }
         }
 
-        Err(last_error.unwrap_or_else(|| {
-            AgentError::ApiError {
-                status_code: 0,
-                message: "All retries exhausted".into(),
-            }
+        Err(last_error.unwrap_or_else(|| AgentError::ApiError {
+            status_code: 0,
+            message: "All retries exhausted".into(),
         }))
     }
 
@@ -326,9 +315,6 @@ mod tests {
             Some("{\"type\":\"text\"}".to_string())
         );
         assert_eq!(extract_sse_data("no data here"), None);
-        assert_eq!(
-            extract_sse_data("data: [DONE]"),
-            Some("[DONE]".to_string())
-        );
+        assert_eq!(extract_sse_data("data: [DONE]"), Some("[DONE]".to_string()));
     }
 }

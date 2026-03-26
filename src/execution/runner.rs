@@ -54,12 +54,12 @@ impl SquadRunner {
                         message: format!("Task {task_id} not found"),
                     })?;
 
-                let agent = squad
-                    .agent_for_role(&task.assigned_role)
-                    .ok_or_else(|| AgentError::ExecutionError {
+                let agent = squad.agent_for_role(&task.assigned_role).ok_or_else(|| {
+                    AgentError::ExecutionError {
                         agent_role: task.assigned_role.clone(),
                         message: format!("No agent for role: {}", task.assigned_role),
-                    })?;
+                    }
+                })?;
 
                 let input = build_task_input(task, &all_outputs);
                 let agent = Arc::clone(agent);
@@ -122,7 +122,9 @@ impl SquadRunner {
                         tracing::warn!(error = %e, "Summary failed, using raw output");
                         let raw = level_outputs
                             .iter()
-                            .map(|o| format!("[{}]: {}", o.role, &o.content[..o.content.len().min(500)]))
+                            .map(|o| {
+                                format!("[{}]: {}", o.role, &o.content[..o.content.len().min(500)])
+                            })
                             .collect::<Vec<_>>()
                             .join("\n");
                         level_summaries.push(raw);
@@ -136,10 +138,7 @@ impl SquadRunner {
         Ok((all_outputs, level_summaries))
     }
 
-    async fn dry_run_execution(
-        &self,
-        squad: &Squad,
-    ) -> Result<(Vec<AgentOutput>, Vec<String>)> {
+    async fn dry_run_execution(&self, squad: &Squad) -> Result<(Vec<AgentOutput>, Vec<String>)> {
         let levels = topological_sort(&squad.tasks)?;
         let mut summaries = Vec::new();
 
@@ -164,7 +163,8 @@ impl SquadRunner {
 /// Returns Vec of levels, each level contains TaskIds that can run concurrently.
 pub fn topological_sort(tasks: &[Task]) -> Result<Vec<Vec<TaskId>>> {
     let mut in_degree: std::collections::HashMap<TaskId, usize> = std::collections::HashMap::new();
-    let mut dependents: std::collections::HashMap<TaskId, Vec<TaskId>> = std::collections::HashMap::new();
+    let mut dependents: std::collections::HashMap<TaskId, Vec<TaskId>> =
+        std::collections::HashMap::new();
 
     // Initialize
     for task in tasks {
@@ -303,13 +303,19 @@ mod tests {
 
     #[test]
     fn build_task_input_with_context() {
-        let task = Task::new("Check logs".into(), "Read nginx error log".into(), "analyst".into());
-        let previous = vec![AgentOutput::new(
-            AgentId::new(),
-            "sysadmin".into(),
-            "Server is running".into(),
-        )
-        .with_confidence(0.8)];
+        let task = Task::new(
+            "Check logs".into(),
+            "Read nginx error log".into(),
+            "analyst".into(),
+        );
+        let previous = vec![
+            AgentOutput::new(
+                AgentId::new(),
+                "sysadmin".into(),
+                "Server is running".into(),
+            )
+            .with_confidence(0.8),
+        ];
 
         let input = build_task_input(&task, &previous);
         assert!(input.contains("Check logs"));

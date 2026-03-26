@@ -3,8 +3,8 @@ use crate::safety::audit::AuditLog;
 
 /// Export interface for audit logs.
 pub enum ExportTarget {
-    File,    // Default — already written by AuditLog
-    Stdout,  // Print to stdout for piping
+    File,   // Default — already written by AuditLog
+    Stdout, // Print to stdout for piping
 }
 
 pub fn export_audit_log(audit_log: &AuditLog, target: ExportTarget) -> Result<()> {

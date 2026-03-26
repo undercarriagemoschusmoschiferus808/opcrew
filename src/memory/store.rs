@@ -16,9 +16,8 @@ impl MemoryStore {
     pub fn open() -> Result<Self> {
         let db_dir = dirs_db_path();
         if let Some(parent) = db_dir.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                AgentError::MemoryError(format!("Failed to create dir: {e}"))
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|e| AgentError::MemoryError(format!("Failed to create dir: {e}")))?;
         }
 
         let conn = Connection::open(&db_dir)
@@ -48,7 +47,10 @@ impl MemoryStore {
             .map_err(|e| AgentError::MemoryError(format!("Migrations: {e}")))?;
 
         // Safe column additions (ignore if already exists)
-        let _ = conn.execute("ALTER TABLE infra_services ADD COLUMN execution_context TEXT NOT NULL DEFAULT '{}'", []);
+        let _ = conn.execute(
+            "ALTER TABLE infra_services ADD COLUMN execution_context TEXT NOT NULL DEFAULT '{}'",
+            [],
+        );
 
         Ok(())
     }
@@ -64,12 +66,18 @@ impl MemoryStore {
         Ok(())
     }
 
-    pub fn update_outcome(&self, session_id: &str, outcome: &str, duration_secs: i64) -> Result<()> {
+    pub fn update_outcome(
+        &self,
+        session_id: &str,
+        outcome: &str,
+        duration_secs: i64,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE sessions SET outcome = ?1, duration_secs = ?2 WHERE id = ?3",
             rusqlite::params![outcome, duration_secs, session_id],
-        ).map_err(|e| AgentError::MemoryError(format!("Update outcome: {e}")))?;
+        )
+        .map_err(|e| AgentError::MemoryError(format!("Update outcome: {e}")))?;
         Ok(())
     }
 
@@ -79,16 +87,18 @@ impl MemoryStore {
             "SELECT id, problem_hash, problem, outcome, created_at, duration_secs FROM sessions ORDER BY created_at DESC LIMIT ?1"
         ).map_err(|e| AgentError::MemoryError(format!("Prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![limit], |row| {
-            Ok(SessionRecord {
-                id: row.get(0)?,
-                problem_hash: row.get(1)?,
-                problem: row.get(2)?,
-                outcome: row.get(3)?,
-                created_at: row.get(4)?,
-                duration_secs: row.get(5)?,
+        let rows = stmt
+            .query_map(rusqlite::params![limit], |row| {
+                Ok(SessionRecord {
+                    id: row.get(0)?,
+                    problem_hash: row.get(1)?,
+                    problem: row.get(2)?,
+                    outcome: row.get(3)?,
+                    created_at: row.get(4)?,
+                    duration_secs: row.get(5)?,
+                })
             })
-        }).map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
+            .map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -125,19 +135,21 @@ impl MemoryStore {
             "SELECT id, session_id, problem_hash, solution, commands, worked, failure_reason, approach_summary, created_at FROM solutions WHERE problem_hash = ?1 ORDER BY created_at DESC"
         ).map_err(|e| AgentError::MemoryError(format!("Prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![problem_hash], |row| {
-            Ok(SolutionRecord {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                problem_hash: row.get(2)?,
-                solution: row.get(3)?,
-                commands: row.get(4)?,
-                worked: row.get(5)?,
-                failure_reason: row.get(6)?,
-                approach_summary: row.get(7)?,
-                created_at: row.get(8)?,
+        let rows = stmt
+            .query_map(rusqlite::params![problem_hash], |row| {
+                Ok(SolutionRecord {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    problem_hash: row.get(2)?,
+                    solution: row.get(3)?,
+                    commands: row.get(4)?,
+                    worked: row.get(5)?,
+                    failure_reason: row.get(6)?,
+                    approach_summary: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
             })
-        }).map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
+            .map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -152,19 +164,21 @@ impl MemoryStore {
             "SELECT id, session_id, problem_hash, solution, commands, worked, failure_reason, approach_summary, created_at FROM solutions WHERE problem_hash = ?1 AND worked = 0 ORDER BY created_at DESC"
         ).map_err(|e| AgentError::MemoryError(format!("Prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![problem_hash], |row| {
-            Ok(SolutionRecord {
-                id: row.get(0)?,
-                session_id: row.get(1)?,
-                problem_hash: row.get(2)?,
-                solution: row.get(3)?,
-                commands: row.get(4)?,
-                worked: row.get(5)?,
-                failure_reason: row.get(6)?,
-                approach_summary: row.get(7)?,
-                created_at: row.get(8)?,
+        let rows = stmt
+            .query_map(rusqlite::params![problem_hash], |row| {
+                Ok(SolutionRecord {
+                    id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    problem_hash: row.get(2)?,
+                    solution: row.get(3)?,
+                    commands: row.get(4)?,
+                    worked: row.get(5)?,
+                    failure_reason: row.get(6)?,
+                    approach_summary: row.get(7)?,
+                    created_at: row.get(8)?,
+                })
             })
-        }).map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
+            .map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -175,7 +189,12 @@ impl MemoryStore {
 
     // --- Approach Outcomes ---
 
-    pub fn update_approach_outcome(&self, problem_hash: &str, approach: &str, worked: bool) -> Result<()> {
+    pub fn update_approach_outcome(
+        &self,
+        problem_hash: &str,
+        approach: &str,
+        worked: bool,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -199,14 +218,16 @@ impl MemoryStore {
             "SELECT problem_hash, approach, times_succeeded, times_failed FROM approach_outcomes WHERE problem_hash = ?1"
         ).map_err(|e| AgentError::MemoryError(format!("Prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![problem_hash], |row| {
-            Ok(ApproachOutcome {
-                problem_hash: row.get(0)?,
-                approach: row.get(1)?,
-                times_succeeded: row.get(2)?,
-                times_failed: row.get(3)?,
+        let rows = stmt
+            .query_map(rusqlite::params![problem_hash], |row| {
+                Ok(ApproachOutcome {
+                    problem_hash: row.get(0)?,
+                    approach: row.get(1)?,
+                    times_succeeded: row.get(2)?,
+                    times_failed: row.get(3)?,
+                })
             })
-        }).map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
+            .map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -217,7 +238,12 @@ impl MemoryStore {
 
     // --- Hypothesis Outcomes (Bayesian) ---
 
-    pub fn update_hypothesis_outcome(&self, problem_hash: &str, category: &str, confirmed: bool) -> Result<()> {
+    pub fn update_hypothesis_outcome(
+        &self,
+        problem_hash: &str,
+        category: &str,
+        confirmed: bool,
+    ) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         let now = chrono::Utc::now().to_rfc3339();
 
@@ -241,14 +267,16 @@ impl MemoryStore {
             "SELECT problem_hash, hypothesis_category, times_confirmed, times_denied FROM hypothesis_outcomes WHERE problem_hash = ?1"
         ).map_err(|e| AgentError::MemoryError(format!("Prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![problem_hash], |row| {
-            Ok(HypothesisOutcome {
-                problem_hash: row.get(0)?,
-                hypothesis_category: row.get(1)?,
-                times_confirmed: row.get(2)?,
-                times_denied: row.get(3)?,
+        let rows = stmt
+            .query_map(rusqlite::params![problem_hash], |row| {
+                Ok(HypothesisOutcome {
+                    problem_hash: row.get(0)?,
+                    hypothesis_category: row.get(1)?,
+                    times_confirmed: row.get(2)?,
+                    times_denied: row.get(3)?,
+                })
             })
-        }).map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
+            .map_err(|e| AgentError::MemoryError(format!("Query: {e}")))?;
 
         let mut results = Vec::new();
         for row in rows {
@@ -271,9 +299,7 @@ pub fn problem_hash(problem: &str) -> String {
 
 fn dirs_db_path() -> PathBuf {
     let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
-    PathBuf::from(home)
-        .join(".opcrew")
-        .join("memory.db")
+    PathBuf::from(home).join(".opcrew").join("memory.db")
 }
 
 const MIGRATIONS: &str = r#"
@@ -458,9 +484,15 @@ mod tests {
         let store = MemoryStore::open_in_memory().unwrap();
         let hash = problem_hash("nginx 502");
 
-        store.update_approach_outcome(&hash, "restart nginx", true).unwrap();
-        store.update_approach_outcome(&hash, "restart nginx", true).unwrap();
-        store.update_approach_outcome(&hash, "restart nginx", false).unwrap();
+        store
+            .update_approach_outcome(&hash, "restart nginx", true)
+            .unwrap();
+        store
+            .update_approach_outcome(&hash, "restart nginx", true)
+            .unwrap();
+        store
+            .update_approach_outcome(&hash, "restart nginx", false)
+            .unwrap();
 
         let stats = store.get_approach_stats(&hash).unwrap();
         assert_eq!(stats.len(), 1);
@@ -475,10 +507,14 @@ mod tests {
         let hash = problem_hash("nginx 502");
 
         for _ in 0..8 {
-            store.update_hypothesis_outcome(&hash, "upstream_down", true).unwrap();
+            store
+                .update_hypothesis_outcome(&hash, "upstream_down", true)
+                .unwrap();
         }
         for _ in 0..2 {
-            store.update_hypothesis_outcome(&hash, "upstream_down", false).unwrap();
+            store
+                .update_hypothesis_outcome(&hash, "upstream_down", false)
+                .unwrap();
         }
 
         let priors = store.get_hypothesis_priors(&hash).unwrap();
@@ -489,10 +525,20 @@ mod tests {
     #[test]
     fn empty_db_returns_empty() {
         let store = MemoryStore::open_in_memory().unwrap();
-        assert!(store.find_similar_solutions("nonexistent").unwrap().is_empty());
+        assert!(
+            store
+                .find_similar_solutions("nonexistent")
+                .unwrap()
+                .is_empty()
+        );
         assert!(store.find_recent_sessions(10).unwrap().is_empty());
         assert!(store.get_approach_stats("nonexistent").unwrap().is_empty());
-        assert!(store.get_hypothesis_priors("nonexistent").unwrap().is_empty());
+        assert!(
+            store
+                .get_hypothesis_priors("nonexistent")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]

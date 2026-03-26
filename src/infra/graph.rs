@@ -31,17 +31,29 @@ pub struct ExecutionContext {
 
 impl ExecutionContext {
     pub fn local() -> Self {
-        Self { runtime: "local".into(), identifier: String::new(), extra: Default::default() }
+        Self {
+            runtime: "local".into(),
+            identifier: String::new(),
+            extra: Default::default(),
+        }
     }
 
     pub fn docker(container_name: &str) -> Self {
-        Self { runtime: "docker".into(), identifier: container_name.into(), extra: Default::default() }
+        Self {
+            runtime: "docker".into(),
+            identifier: container_name.into(),
+            extra: Default::default(),
+        }
     }
 
     pub fn kubernetes(namespace: &str, name: &str) -> Self {
         let mut extra = std::collections::HashMap::new();
         extra.insert("namespace".into(), namespace.into());
-        Self { runtime: "kubernetes".into(), identifier: name.into(), extra }
+        Self {
+            runtime: "kubernetes".into(),
+            identifier: name.into(),
+            extra,
+        }
     }
 
     /// Format for LLM translation prompt.
@@ -160,7 +172,9 @@ impl InfraGraph {
 
         // Load dependencies
         let mut dep_stmt = conn
-            .prepare("SELECT from_service, to_service, dep_type, discovered_via FROM infra_dependencies")
+            .prepare(
+                "SELECT from_service, to_service, dep_type, discovered_via FROM infra_dependencies",
+            )
             .map_err(|e| AgentError::InfraError(format!("Prepare deps: {e}")))?;
 
         graph.dependencies = dep_stmt
@@ -361,21 +375,41 @@ mod tests {
     #[test]
     fn dependency_traversal() {
         let mut graph = InfraGraph::new();
-        graph.services.insert("a".into(), Service {
-            name: "a".into(), host: "localhost".into(), port: None, process_name: None,
-            log_paths: vec![], config_paths: vec![], health_check: None,
-            service_type: ServiceType::Web, discovered_via: DiscoveryMethod::Process,
-            execution_context: ExecutionContext::local(),
-        });
-        graph.services.insert("b".into(), Service {
-            name: "b".into(), host: "localhost".into(), port: None, process_name: None,
-            log_paths: vec![], config_paths: vec![], health_check: None,
-            service_type: ServiceType::Database, discovered_via: DiscoveryMethod::Process,
-            execution_context: ExecutionContext::local(),
-        });
+        graph.services.insert(
+            "a".into(),
+            Service {
+                name: "a".into(),
+                host: "localhost".into(),
+                port: None,
+                process_name: None,
+                log_paths: vec![],
+                config_paths: vec![],
+                health_check: None,
+                service_type: ServiceType::Web,
+                discovered_via: DiscoveryMethod::Process,
+                execution_context: ExecutionContext::local(),
+            },
+        );
+        graph.services.insert(
+            "b".into(),
+            Service {
+                name: "b".into(),
+                host: "localhost".into(),
+                port: None,
+                process_name: None,
+                log_paths: vec![],
+                config_paths: vec![],
+                health_check: None,
+                service_type: ServiceType::Database,
+                discovered_via: DiscoveryMethod::Process,
+                execution_context: ExecutionContext::local(),
+            },
+        );
         graph.dependencies.push(Dependency {
-            from: "a".into(), to: "b".into(),
-            dep_type: DependencyType::Required, discovered_via: "env".into(),
+            from: "a".into(),
+            to: "b".into(),
+            dep_type: DependencyType::Required,
+            discovered_via: "env".into(),
         });
 
         let deps = graph.dependencies_of("a");
@@ -390,13 +424,21 @@ mod tests {
     #[test]
     fn context_string_format() {
         let mut graph = InfraGraph::new();
-        graph.services.insert("nginx".into(), Service {
-            name: "nginx".into(), host: "localhost".into(), port: Some(80),
-            process_name: None, log_paths: vec!["/var/log/nginx/".into()],
-            config_paths: vec![], health_check: None,
-            service_type: ServiceType::LoadBalancer, discovered_via: DiscoveryMethod::Systemd,
-            execution_context: ExecutionContext::local(),
-        });
+        graph.services.insert(
+            "nginx".into(),
+            Service {
+                name: "nginx".into(),
+                host: "localhost".into(),
+                port: Some(80),
+                process_name: None,
+                log_paths: vec!["/var/log/nginx/".into()],
+                config_paths: vec![],
+                health_check: None,
+                service_type: ServiceType::LoadBalancer,
+                discovered_via: DiscoveryMethod::Systemd,
+                execution_context: ExecutionContext::local(),
+            },
+        );
         graph.hosts = vec!["localhost".into()];
 
         let ctx = graph.to_context_string();

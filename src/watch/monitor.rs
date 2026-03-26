@@ -66,7 +66,10 @@ impl MonitorCheck {
         let timeout = Duration::from_secs(15);
 
         match self {
-            Self::DiskUsage { path, threshold_pct } => {
+            Self::DiskUsage {
+                path,
+                threshold_pct,
+            } => {
                 let params = ToolParams {
                     tool_name: "shell".into(),
                     action: "run".into(),
@@ -78,8 +81,14 @@ impl MonitorCheck {
                         if pct >= *threshold_pct {
                             CheckResult {
                                 check_name: self.name(),
-                                status: if pct >= 95 { CheckStatus::Critical } else { CheckStatus::Warning },
-                                message: format!("Disk usage {pct}% on {path} (threshold: {threshold_pct}%)"),
+                                status: if pct >= 95 {
+                                    CheckStatus::Critical
+                                } else {
+                                    CheckStatus::Warning
+                                },
+                                message: format!(
+                                    "Disk usage {pct}% on {path} (threshold: {threshold_pct}%)"
+                                ),
                             }
                         } else {
                             CheckResult {
@@ -108,8 +117,14 @@ impl MonitorCheck {
                         if pct >= *threshold_pct {
                             CheckResult {
                                 check_name: self.name(),
-                                status: if pct >= 95 { CheckStatus::Critical } else { CheckStatus::Warning },
-                                message: format!("Memory usage {pct}% (threshold: {threshold_pct}%)"),
+                                status: if pct >= 95 {
+                                    CheckStatus::Critical
+                                } else {
+                                    CheckStatus::Warning
+                                },
+                                message: format!(
+                                    "Memory usage {pct}% (threshold: {threshold_pct}%)"
+                                ),
                             }
                         } else {
                             CheckResult {
@@ -126,7 +141,10 @@ impl MonitorCheck {
                     },
                 }
             }
-            Self::ServiceDown { service_name, check_cmd } => {
+            Self::ServiceDown {
+                service_name,
+                check_cmd,
+            } => {
                 let params = ToolParams {
                     tool_name: "shell".into(),
                     action: "run".into(),
@@ -166,7 +184,11 @@ impl MonitorCheck {
                     },
                 }
             }
-            Self::LogErrorRate { log_path, pattern, max_per_minute } => {
+            Self::LogErrorRate {
+                log_path,
+                pattern,
+                max_per_minute,
+            } => {
                 // Count pattern matches in last 100 lines
                 let params = ToolParams {
                     tool_name: "shell".into(),
@@ -175,18 +197,26 @@ impl MonitorCheck {
                 };
                 match shell.execute(&params, timeout).await {
                     Ok(result) if result.success => {
-                        let count = result.output.lines().filter(|l| l.contains(pattern.as_str())).count();
+                        let count = result
+                            .output
+                            .lines()
+                            .filter(|l| l.contains(pattern.as_str()))
+                            .count();
                         if count as u32 > *max_per_minute {
                             CheckResult {
                                 check_name: self.name(),
                                 status: CheckStatus::Warning,
-                                message: format!("{count} '{pattern}' in last 100 lines of {log_path} (max: {max_per_minute})"),
+                                message: format!(
+                                    "{count} '{pattern}' in last 100 lines of {log_path} (max: {max_per_minute})"
+                                ),
                             }
                         } else {
                             CheckResult {
                                 check_name: self.name(),
                                 status: CheckStatus::Healthy,
-                                message: format!("{count} '{pattern}' in last 100 lines of {log_path}"),
+                                message: format!(
+                                    "{count} '{pattern}' in last 100 lines of {log_path}"
+                                ),
                             }
                         }
                     }
@@ -216,7 +246,9 @@ impl MonitorCheck {
                             CheckResult {
                                 check_name: self.name(),
                                 status: CheckStatus::Critical,
-                                message: format!("Custom check failed: {cmd} (exit {actual_exit}, expected {expected_exit})"),
+                                message: format!(
+                                    "Custom check failed: {cmd} (exit {actual_exit}, expected {expected_exit})"
+                                ),
                             }
                         }
                     }
@@ -279,10 +311,16 @@ mod tests {
 
     #[test]
     fn check_names() {
-        let check = MonitorCheck::DiskUsage { path: "/var".into(), threshold_pct: 85 };
+        let check = MonitorCheck::DiskUsage {
+            path: "/var".into(),
+            threshold_pct: 85,
+        };
         assert_eq!(check.name(), "disk:/var");
 
-        let check = MonitorCheck::ServiceDown { service_name: "nginx".into(), check_cmd: "systemctl is-active nginx".into() };
+        let check = MonitorCheck::ServiceDown {
+            service_name: "nginx".into(),
+            check_cmd: "systemctl is-active nginx".into(),
+        };
         assert_eq!(check.name(), "service:nginx");
     }
 

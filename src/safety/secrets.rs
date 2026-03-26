@@ -47,7 +47,10 @@ impl SecretMasker {
                     .iter()
                     .map(|(k, v)| {
                         if is_secret_key(k) {
-                            (k.clone(), serde_json::Value::String(format!("[REDACTED:{k}]")))
+                            (
+                                k.clone(),
+                                serde_json::Value::String(format!("[REDACTED:{k}]")),
+                            )
                         } else {
                             (k.clone(), self.mask_value(v))
                         }
@@ -107,7 +110,9 @@ fn mask_static_patterns(input: &str) -> String {
 
     // AWS access keys
     let aws_re = Regex::new(r"AKIA[0-9A-Z]{16}").unwrap();
-    result = aws_re.replace_all(&result, "[REDACTED:aws_key]").to_string();
+    result = aws_re
+        .replace_all(&result, "[REDACTED:aws_key]")
+        .to_string();
 
     // Anthropic API keys
     let anthropic_re = Regex::new(r"sk-ant-[a-zA-Z0-9\-_]{20,}").unwrap();

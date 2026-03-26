@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 
+mod agents;
 mod api;
 mod cli;
 mod config;
@@ -9,7 +10,6 @@ mod execution;
 mod infra;
 mod memory;
 mod observability;
-mod agents;
 mod output;
 mod safety;
 mod tools;
@@ -26,7 +26,7 @@ use uuid::Uuid;
 use crate::agents::ceo::CeoAgent;
 use crate::agents::factory::AgentFactory;
 use crate::agents::hypothesis::HypothesisAgent;
-use crate::agents::verifier::{VerifierAgent, VerificationResult};
+use crate::agents::verifier::{VerificationResult, VerifierAgent};
 use crate::api::client::ClaudeClient;
 use crate::api::gemini::GeminiClient;
 use crate::api::local::LocalClient;
@@ -38,8 +38,8 @@ use crate::execution::budget::TokenBudget;
 use crate::execution::runner::SquadRunner;
 use crate::infra::graph::InfraGraph;
 use crate::memory::models::{FindingRecord, SessionRecord, SolutionRecord};
-use crate::memory::store::{problem_hash, MemoryStore};
-use crate::observability::logging::{init_logging, init_logging_pretty, SessionContext};
+use crate::memory::store::{MemoryStore, problem_hash};
+use crate::observability::logging::{SessionContext, init_logging, init_logging_pretty};
 use crate::observability::metrics::Metrics;
 use crate::output::formatter::OutputFormatter;
 use crate::safety::audit::{AuditAction, AuditLog};
@@ -98,18 +98,25 @@ async fn main() -> anyhow::Result<()> {
         50,
     ));
     let client = create_provider(&cli.provider, &config, cli.model.clone())?;
-    tracing::info!(provider = client.provider_name(), model = client.model_name(), "LLM provider initialized");
+    tracing::info!(
+        provider = client.provider_name(),
+        model = client.model_name(),
+        "LLM provider initialized"
+    );
 
     let budget = Arc::new(TokenBudget::new(
         cli.session_budget / cli.max_agents as u32,
         cli.session_budget,
     ));
 
-    let target = cli.target.as_ref()
+    let target = cli
+        .target
+        .as_ref()
         .and_then(|t| TargetHost::parse_target(t))
         .unwrap_or(TargetHost::Local);
     // Shared infra graph
-    let infra_graph: Arc<std::sync::RwLock<Option<InfraGraph>>> = Arc::new(std::sync::RwLock::new(None));
+    let infra_graph: Arc<std::sync::RwLock<Option<InfraGraph>>> =
+        Arc::new(std::sync::RwLock::new(None));
 
     let mut tool_registry = ToolRegistry::new();
     tool_registry.register(Arc::new(ShellTool::new(target.clone())));
@@ -117,7 +124,9 @@ async fn main() -> anyhow::Result<()> {
     tool_registry.register(Arc::new(LogReaderTool::new()));
     tool_registry.register(Arc::new(CodeWriterTool::new()));
     tool_registry.register(Arc::new(crate::tools::service::ServiceTool::new(
-        Arc::clone(&client), Arc::clone(&infra_graph), target,
+        Arc::clone(&client),
+        Arc::clone(&infra_graph),
+        target,
     )));
     let tool_registry = Arc::new(tool_registry);
 
@@ -201,7 +210,10 @@ async fn main() -> anyhow::Result<()> {
         // Spawn auto-fix handler: receives problems from watch, runs fast-path
         tokio::spawn(async move {
             while let Some(problem) = problem_rx.recv().await {
-                tracing::info!(problem_len = problem.len(), "Auto-fix triggered by watch mode");
+                tracing::info!(
+                    problem_len = problem.len(),
+                    "Auto-fix triggered by watch mode"
+                );
                 let fast_config = crate::domain::agent::AgentConfig {
                     id: crate::domain::agent::AgentId::new(),
                     role: "Watch Auto-Fix".into(),
@@ -214,14 +226,19 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let agent = crate::agents::specialist::SpecialistAgent::new(
                     fast_config,
-                    Arc::clone(&fix_client), Arc::clone(&fix_tools),
-                    Arc::clone(&fix_guardian), Arc::clone(&fix_budget),
-                    Arc::clone(&fix_masker), Arc::clone(&fix_metrics),
+                    Arc::clone(&fix_client),
+                    Arc::clone(&fix_tools),
+                    Arc::clone(&fix_guardian),
+                    Arc::clone(&fix_budget),
+                    Arc::clone(&fix_masker),
+                    Arc::clone(&fix_metrics),
                 );
                 match crate::domain::agent::AgentBehavior::execute(&agent, &problem).await {
                     Ok(output) => {
-                        eprintln!("\n  >>> Auto-fix result:\n  {}\n",
-                            &output.content[..output.content.len().min(500)]);
+                        eprintln!(
+                            "\n  >>> Auto-fix result:\n  {}\n",
+                            &output.content[..output.content.len().min(500)]
+                        );
                     }
                     Err(e) => {
                         eprintln!("\n  >>> Auto-fix failed: {e}\n");
@@ -260,7 +277,11 @@ async fn main() -> anyhow::Result<()> {
     if !cli.json {
         println!("\nopcrew v{}", env!("CARGO_PKG_VERSION"));
         println!("Session: {}", session.session_id);
-        println!("Provider: {} ({})", client.provider_name(), client.model_name());
+        println!(
+            "Provider: {} ({})",
+            client.provider_name(),
+            client.model_name()
+        );
         println!("Problem: {}...\n", &problem[..problem.len().min(100)]);
     }
 
@@ -282,16 +303,31 @@ async fn main() -> anyhow::Result<()> {
     };
     let pipeline_result = tokio::time::timeout(
         timeout_duration,
-        run_pipeline(&cli, &problem, &p_hash, &session_id, &ctx, &formatter, &infra_context),
+        run_pipeline(
+            &cli,
+            &problem,
+            &p_hash,
+            &session_id,
+            &ctx,
+            &formatter,
+            &infra_context,
+        ),
     )
     .await;
 
     match pipeline_result {
         Ok(result) => result?,
         Err(_) => {
-            eprintln!("\n⚠ Session timeout ({} seconds). Partial results saved.", cli.session_timeout);
+            eprintln!(
+                "\n⚠ Session timeout ({} seconds). Partial results saved.",
+                cli.session_timeout
+            );
             if let Some(mem) = memory.as_ref() {
-                let _ = mem.update_outcome(&session_id, "timeout", start_time.elapsed().as_secs() as i64);
+                let _ = mem.update_outcome(
+                    &session_id,
+                    "timeout",
+                    start_time.elapsed().as_secs() as i64,
+                );
             }
         }
     }
@@ -355,26 +391,35 @@ async fn run_pipeline(
         // Load infra graph for context-aware pre-fetch
         let infra_graph = if let Some(mem) = memory.as_ref() {
             let conn = mem.connection().lock().unwrap();
-            crate::infra::graph::InfraGraph::load_from_db(&conn).ok().flatten()
+            crate::infra::graph::InfraGraph::load_from_db(&conn)
+                .ok()
+                .flatten()
         } else {
             None
         };
 
         // Determine target
-        let target = cli.target.as_ref()
+        let target = cli
+            .target
+            .as_ref()
             .and_then(|t| crate::tools::target::TargetHost::parse_target(t))
             .unwrap_or_default();
 
         // Phase T1: Pre-fetch system context
         if !cli.json {
-            eprintln!("  {} Collecting system context...", colored::Colorize::dimmed("⚡"));
+            eprintln!(
+                "  {} Collecting system context...",
+                colored::Colorize::dimmed("⚡")
+            );
         }
         let system_context = prefetch_system_context(problem, &target, infra_graph.as_ref()).await;
         if !cli.json {
-            eprintln!("  {} {} data points in {}ms",
+            eprintln!(
+                "  {} {} data points in {}ms",
                 colored::Colorize::green("⚡"),
                 system_context.data.len(),
-                system_context.fetch_duration_ms);
+                system_context.fetch_duration_ms
+            );
         }
 
         // Phase T2: Triage — single LLM call with all context
@@ -385,15 +430,24 @@ async fn run_pipeline(
             match triage(client, problem, &system_context).await {
                 Ok(result) => {
                     if !cli.json {
-                        eprintln!("  {} Triage: confidence {:.0}% — {}",
-                            if result.is_confident() { colored::Colorize::green("⚡") } else { colored::Colorize::yellow("⚡") },
+                        eprintln!(
+                            "  {} Triage: confidence {:.0}% — {}",
+                            if result.is_confident() {
+                                colored::Colorize::green("⚡")
+                            } else {
+                                colored::Colorize::yellow("⚡")
+                            },
                             result.confidence * 100.0,
-                            &result.root_cause[..result.root_cause.len().min(80)]);
+                            &result.root_cause[..result.root_cause.len().min(80)]
+                        );
                     }
 
                     // Phase T3: If confident, execute fix directly
                     if result.is_confident() && cli.auto_approve {
-                        tracing::info!(confidence = result.confidence, "Turbo: applying fix directly");
+                        tracing::info!(
+                            confidence = result.confidence,
+                            "Turbo: applying fix directly"
+                        );
 
                         let shell = crate::tools::shell::ShellTool::new(target.clone());
                         let mut all_ok = true;
@@ -410,17 +464,23 @@ async fn run_pipeline(
                                 action: "run".into(),
                                 args: [("command".into(), cmd.clone())].into(),
                             };
-                            let decision = guardian.review(&tool_params, "Turbo Fix", "turbo", &result.diagnostic).await?;
+                            let decision = guardian
+                                .review(&tool_params, "Turbo Fix", "turbo", &result.diagnostic)
+                                .await?;
 
                             match decision {
                                 crate::safety::guardian::ReviewDecision::Approved { .. } => {
                                     metrics.record_guardian_approval();
                                     if !cli.json {
-                                        eprintln!("  {} {}",
+                                        eprintln!(
+                                            "  {} {}",
                                             colored::Colorize::cyan("→"),
-                                            colored::Colorize::dimmed(cmd.as_str()));
+                                            colored::Colorize::dimmed(cmd.as_str())
+                                        );
                                     }
-                                    let exec_result = shell.execute(&tool_params, std::time::Duration::from_secs(30)).await;
+                                    let exec_result = shell
+                                        .execute(&tool_params, std::time::Duration::from_secs(30))
+                                        .await;
                                     match exec_result {
                                         Ok(r) if r.success => {
                                             tracing::info!(cmd = %cmd, "Fix command succeeded");
@@ -446,21 +506,28 @@ async fn run_pipeline(
                         // Phase T4: Verify
                         let mut verified = false;
                         for cmd in &result.verify_commands {
-                            if crate::tools::shell::ShellTool::has_composition(cmd) { continue; }
+                            if crate::tools::shell::ShellTool::has_composition(cmd) {
+                                continue;
+                            }
                             let params = crate::tools::traits::ToolParams {
                                 tool_name: "shell".into(),
                                 action: "run".into(),
                                 args: [("command".into(), cmd.clone())].into(),
                             };
-                            if let Ok(r) = shell.execute(&params, std::time::Duration::from_secs(15)).await
-                                && r.success {
-                                    if !cli.json {
-                                        eprintln!("  {} Verify: {}",
-                                            colored::Colorize::green("✓"),
-                                            &r.output[..r.output.len().min(100)].trim());
-                                    }
-                                    verified = true;
+                            if let Ok(r) = shell
+                                .execute(&params, std::time::Duration::from_secs(15))
+                                .await
+                                && r.success
+                            {
+                                if !cli.json {
+                                    eprintln!(
+                                        "  {} Verify: {}",
+                                        colored::Colorize::green("✓"),
+                                        &r.output[..r.output.len().min(100)].trim()
+                                    );
                                 }
+                                verified = true;
+                            }
                         }
 
                         // Report
@@ -475,7 +542,10 @@ async fn run_pipeline(
                             result.fix_commands.join(", "),
                             if verified { "Yes" } else { "Partial" },
                         );
-                        println!("{}", formatter.format_final_result(&report, metrics.total_tokens()));
+                        println!(
+                            "{}",
+                            formatter.format_final_result(&report, metrics.total_tokens())
+                        );
 
                         // Save to memory
                         if let Some(mem) = memory.as_ref() {
@@ -573,13 +643,21 @@ async fn run_pipeline(
             let mut ctx = String::new();
             for s in &solutions {
                 let status = if s.worked { "WORKED" } else { "FAILED" };
-                ctx.push_str(&format!("- [{status}] {}: {}\n", s.approach_summary, s.solution));
+                ctx.push_str(&format!(
+                    "- [{status}] {}: {}\n",
+                    s.approach_summary, s.solution
+                ));
             }
             if !stats.is_empty() {
                 ctx.push_str("\nApproach success rates:\n");
                 for s in &stats {
-                    ctx.push_str(&format!("- \"{}\": {:.0}% ({}/{})\n",
-                        s.approach, s.success_rate() * 100.0, s.times_succeeded, s.total_tries()));
+                    ctx.push_str(&format!(
+                        "- \"{}\": {:.0}% ({}/{})\n",
+                        s.approach,
+                        s.success_rate() * 100.0,
+                        s.times_succeeded,
+                        s.total_tries()
+                    ));
                 }
             }
             ctx
@@ -595,13 +673,23 @@ async fn run_pipeline(
         };
 
         tracing::info!("Generating hypotheses...");
-        match hypothesis_agent.generate(problem, &memory_context, infra_context, &priors).await {
+        match hypothesis_agent
+            .generate(problem, &memory_context, infra_context, &priors)
+            .await
+        {
             Ok(report) => {
                 if !cli.json {
-                    println!("{}", formatter.format_progress("Hypothesis", &format!(
-                        "{} hypotheses generated (complexity: {:?})",
-                        report.hypotheses.len(), report.estimated_complexity
-                    )));
+                    println!(
+                        "{}",
+                        formatter.format_progress(
+                            "Hypothesis",
+                            &format!(
+                                "{} hypotheses generated (complexity: {:?})",
+                                report.hypotheses.len(),
+                                report.estimated_complexity
+                            )
+                        )
+                    );
                 }
                 Some(report)
             }
@@ -612,7 +700,8 @@ async fn run_pipeline(
         }
     };
 
-    let hypothesis_context = hypothesis_report.as_ref()
+    let hypothesis_context = hypothesis_report
+        .as_ref()
         .map(HypothesisAgent::format_for_ceo)
         .unwrap_or_default();
 
@@ -625,112 +714,154 @@ async fn run_pipeline(
         Vec::new()
     };
     let past_worked = if let Some(mem) = memory.as_ref() {
-        mem.find_similar_solutions(p_hash).unwrap_or_default().iter().any(|s| s.worked)
+        mem.find_similar_solutions(p_hash)
+            .unwrap_or_default()
+            .iter()
+            .any(|s| s.worked)
     } else {
         false
     };
 
     let route = crate::execution::routing::compute_route(
-        problem, hypothesis_report.as_ref(), &approach_stats, past_worked,
+        problem,
+        hypothesis_report.as_ref(),
+        &approach_stats,
+        past_worked,
     );
     tracing::info!(route = %route, "Routing decision");
     if !cli.json {
-        println!("{}", formatter.format_progress("Router", &format!("{route}")));
+        println!(
+            "{}",
+            formatter.format_progress("Router", &format!("{route}"))
+        );
     }
 
     // Handle memory replay
-    if let crate::execution::routing::RouteDecision::MemoryReplay { approach, solution, .. } = &route
-        && !cli.dry_run {
-            tracing::info!(approach = %approach, "Memory replay: applying known solution");
-            if !cli.json {
-                println!("{}", formatter.format_progress("Memory", &format!("Replaying known fix: {approach}")));
-            }
-            // Run a single agent with the known approach
-            let replay_prompt = format!(
-                "A previous session solved this same problem. Apply the known fix:\n\n\
+    if let crate::execution::routing::RouteDecision::MemoryReplay {
+        approach, solution, ..
+    } = &route
+        && !cli.dry_run
+    {
+        tracing::info!(approach = %approach, "Memory replay: applying known solution");
+        if !cli.json {
+            println!(
+                "{}",
+                formatter.format_progress("Memory", &format!("Replaying known fix: {approach}"))
+            );
+        }
+        // Run a single agent with the known approach
+        let replay_prompt = format!(
+            "A previous session solved this same problem. Apply the known fix:\n\n\
                  Approach: {approach}\n\
                  Previous result: {solution}\n\n\
                  Problem: {problem}\n\n\
                  Apply the fix and verify it worked."
-            );
-            let replay_config = crate::domain::agent::AgentConfig {
-                id: crate::domain::agent::AgentId::new(),
-                role: "Memory Replay".into(),
-                expertise: vec!["remediation".into()],
-                system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
-                goal: "Replay known fix".into(),
-                allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
-                token_budget: 400_000,
-                max_conversation_turns: 15,
-            };
-            let replay_agent = crate::agents::specialist::SpecialistAgent::new(
-                replay_config, Arc::clone(client), Arc::clone(tool_registry),
-                Arc::clone(guardian), Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
-            );
-            match replay_agent.execute(&replay_prompt).await {
-                Ok(output) => {
-                    metrics.record_tokens(output.tokens_used);
-                    println!("{}", formatter.format_final_result(&output.content, metrics.total_tokens()));
-                    return Ok(());
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Memory replay failed, falling back");
-                }
+        );
+        let replay_config = crate::domain::agent::AgentConfig {
+            id: crate::domain::agent::AgentId::new(),
+            role: "Memory Replay".into(),
+            expertise: vec!["remediation".into()],
+            system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
+            goal: "Replay known fix".into(),
+            allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
+            token_budget: 400_000,
+            max_conversation_turns: 15,
+        };
+        let replay_agent = crate::agents::specialist::SpecialistAgent::new(
+            replay_config,
+            Arc::clone(client),
+            Arc::clone(tool_registry),
+            Arc::clone(guardian),
+            Arc::clone(budget),
+            Arc::clone(masker),
+            Arc::clone(metrics),
+        );
+        match replay_agent.execute(&replay_prompt).await {
+            Ok(output) => {
+                metrics.record_tokens(output.tokens_used);
+                println!(
+                    "{}",
+                    formatter.format_final_result(&output.content, metrics.total_tokens())
+                );
+                return Ok(());
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Memory replay failed, falling back");
             }
         }
+    }
 
     // Handle fast-path
-    if route.is_fast() && !cli.dry_run
+    if route.is_fast()
+        && !cli.dry_run
         && let Some(report) = &hypothesis_report
-            && let Some(top) = report.hypotheses.first() {
-                tracing::info!(hypothesis = %top.id, "Fast-path: running direct diagnostic + fix");
-                if !cli.json {
-                    println!("{}", formatter.format_progress("Fast-path",
-                        &format!("Testing {}: {}", top.id, &top.description[..top.description.len().min(60)])));
-                }
+        && let Some(top) = report.hypotheses.first()
+    {
+        tracing::info!(hypothesis = %top.id, "Fast-path: running direct diagnostic + fix");
+        if !cli.json {
+            println!(
+                "{}",
+                formatter.format_progress(
+                    "Fast-path",
+                    &format!(
+                        "Testing {}: {}",
+                        top.id,
+                        &top.description[..top.description.len().min(60)]
+                    )
+                )
+            );
+        }
 
-                let fast_prompt = format!(
-                    "Do these steps IN ORDER:\n\
+        let fast_prompt = format!(
+            "Do these steps IN ORDER:\n\
                      1. Run: {} (to confirm the hypothesis)\n\
                      2. If confirmed, apply fix: {}\n\
                      3. Verify the fix worked\n\n\
                      Hypothesis: {}\nProblem: {problem}",
-                    top.confirm_by, top.fix_approach, top.description,
+            top.confirm_by, top.fix_approach, top.description,
+        );
+        let fast_config = crate::domain::agent::AgentConfig {
+            id: crate::domain::agent::AgentId::new(),
+            role: "Fast Diagnostic".into(),
+            expertise: vec!["diagnostics".into(), "remediation".into()],
+            system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
+            goal: "Confirm hypothesis and apply fix".into(),
+            allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
+            token_budget: 400_000,
+            max_conversation_turns: 20,
+        };
+        let fast_agent = crate::agents::specialist::SpecialistAgent::new(
+            fast_config,
+            Arc::clone(client),
+            Arc::clone(tool_registry),
+            Arc::clone(guardian),
+            Arc::clone(budget),
+            Arc::clone(masker),
+            Arc::clone(metrics),
+        );
+        match fast_agent.execute(&fast_prompt).await {
+            Ok(output) => {
+                metrics.record_tokens(output.tokens_used);
+                println!(
+                    "{}",
+                    formatter.format_final_result(&output.content, metrics.total_tokens())
                 );
-                let fast_config = crate::domain::agent::AgentConfig {
-                    id: crate::domain::agent::AgentId::new(),
-                    role: "Fast Diagnostic".into(),
-                    expertise: vec!["diagnostics".into(), "remediation".into()],
-                    system_prompt: crate::agents::factory::SPECIALIST_SYSTEM_PROMPT.to_string(),
-                    goal: "Confirm hypothesis and apply fix".into(),
-                    allowed_tools: vec!["shell".into(), "file_ops".into(), "log_reader".into()],
-                    token_budget: 400_000,
-                    max_conversation_turns: 20,
-                };
-                let fast_agent = crate::agents::specialist::SpecialistAgent::new(
-                    fast_config, Arc::clone(client), Arc::clone(tool_registry),
-                    Arc::clone(guardian), Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
-                );
-                match fast_agent.execute(&fast_prompt).await {
-                    Ok(output) => {
-                        metrics.record_tokens(output.tokens_used);
-                        println!("{}", formatter.format_final_result(&output.content, metrics.total_tokens()));
-                        if let Some(mem) = memory.as_ref() {
-                            let _ = mem.save_finding(&FindingRecord {
-                                id: Uuid::new_v4().to_string(),
-                                session_id: session_id.to_string(),
-                                agent_role: "Fast Diagnostic".into(),
-                                finding: output.content[..output.content.len().min(2000)].to_string(),
-                                created_at: chrono::Utc::now().to_rfc3339(),
-                            });
-                        }
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Fast-path failed, falling back to full pipeline");
-                    }
+                if let Some(mem) = memory.as_ref() {
+                    let _ = mem.save_finding(&FindingRecord {
+                        id: Uuid::new_v4().to_string(),
+                        session_id: session_id.to_string(),
+                        agent_role: "Fast Diagnostic".into(),
+                        finding: output.content[..output.content.len().min(2000)].to_string(),
+                        created_at: chrono::Utc::now().to_rfc3339(),
+                    });
                 }
+                return Ok(());
             }
+            Err(e) => {
+                tracing::warn!(error = %e, "Fast-path failed, falling back to full pipeline");
+            }
+        }
+    }
 
     // =========================================================
     // Phase 2: CEO creates plan
@@ -761,14 +892,20 @@ async fn run_pipeline(
     if cli.dry_run {
         println!("{}", formatter.format_dry_run_header());
         let factory = AgentFactory::new(
-            Arc::clone(client), Arc::clone(tool_registry), Arc::clone(guardian),
-            Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
+            Arc::clone(client),
+            Arc::clone(tool_registry),
+            Arc::clone(guardian),
+            Arc::clone(budget),
+            Arc::clone(masker),
+            Arc::clone(metrics),
             Arc::clone(&ctx.infra_graph),
         );
         let squad = factory.create_squad_from_plan(&plan, cli.max_agents)?;
         let runner = SquadRunner::new(Arc::clone(&ceo), cancellation.clone());
         let (_, summaries) = runner.execute(&squad, true).await?;
-        for s in &summaries { println!("{s}"); }
+        for s in &summaries {
+            println!("{s}");
+        }
         return Ok(());
     }
 
@@ -776,13 +913,19 @@ async fn run_pipeline(
     // Phase 3: Execute + Verify + Replan loop
     // =========================================================
     let factory = AgentFactory::new(
-        Arc::clone(client), Arc::clone(tool_registry), Arc::clone(guardian),
-        Arc::clone(budget), Arc::clone(masker), Arc::clone(metrics),
+        Arc::clone(client),
+        Arc::clone(tool_registry),
+        Arc::clone(guardian),
+        Arc::clone(budget),
+        Arc::clone(masker),
+        Arc::clone(metrics),
         Arc::clone(&ctx.infra_graph),
     );
     let verifier = VerifierAgent::new(
-        Arc::clone(client), Arc::clone(tool_registry),
-        Arc::clone(guardian), Arc::clone(metrics),
+        Arc::clone(client),
+        Arc::clone(tool_registry),
+        Arc::clone(guardian),
+        Arc::clone(metrics),
     );
     let runner = SquadRunner::new(Arc::clone(&ceo), cancellation.clone());
 
@@ -796,8 +939,17 @@ async fn run_pipeline(
 
         let squad = factory.create_squad_from_plan(&current_plan, cli.max_agents)?;
         if !cli.json {
-            println!("{}", formatter.format_progress("Squad",
-                &format!("Round {round}: {} agents, {} tasks", squad.agent_count(), squad.task_count())));
+            println!(
+                "{}",
+                formatter.format_progress(
+                    "Squad",
+                    &format!(
+                        "Round {round}: {} agents, {} tasks",
+                        squad.agent_count(),
+                        squad.task_count()
+                    )
+                )
+            );
         }
 
         let (outputs, level_summaries) = runner.execute(&squad, false).await?;
@@ -826,11 +978,19 @@ async fn run_pipeline(
         rounds_info.push((round, round_summary.clone()));
 
         match &verification {
-            VerificationResult::Resolved { confidence, evidence } => {
+            VerificationResult::Resolved {
+                confidence,
+                evidence,
+            } => {
                 tracing::info!(confidence, "Problem resolved!");
                 if !cli.json {
-                    println!("{}", formatter.format_progress("Verifier",
-                        &format!("RESOLVED (confidence: {:.0}%)", confidence * 100.0)));
+                    println!(
+                        "{}",
+                        formatter.format_progress(
+                            "Verifier",
+                            &format!("RESOLVED (confidence: {:.0}%)", confidence * 100.0)
+                        )
+                    );
                 }
                 resolved = true;
 
@@ -852,16 +1012,25 @@ async fn run_pipeline(
                 break;
             }
             VerificationResult::PartiallyResolved { what_remains, .. }
-            | VerificationResult::Failed { reason: what_remains, .. } => {
+            | VerificationResult::Failed {
+                reason: what_remains,
+                ..
+            } => {
                 tracing::warn!(round, "Not fully resolved, replanning...");
                 if !cli.json {
-                    let label = if matches!(verification, VerificationResult::PartiallyResolved { .. }) {
-                        "PARTIALLY RESOLVED"
-                    } else {
-                        "FAILED"
-                    };
-                    println!("{}", formatter.format_progress("Verifier",
-                        &format!("{label} — {}", &what_remains[..what_remains.len().min(100)])));
+                    let label =
+                        if matches!(verification, VerificationResult::PartiallyResolved { .. }) {
+                            "PARTIALLY RESOLVED"
+                        } else {
+                            "FAILED"
+                        };
+                    println!(
+                        "{}",
+                        formatter.format_progress(
+                            "Verifier",
+                            &format!("{label} — {}", &what_remains[..what_remains.len().min(100)])
+                        )
+                    );
                 }
 
                 if round < cli.max_rounds {
@@ -869,7 +1038,8 @@ async fn run_pipeline(
                     tracing::info!("CEO replanning...");
                     let replan_context = format!(
                         "Previous attempt summary:\n{}\n\nVerification result: {:?}\n\nDO NOT repeat the same approach.",
-                        level_summaries.join("\n"), verification
+                        level_summaries.join("\n"),
+                        verification
                     );
                     let replan_problem = format!("{problem}\n\n{replan_context}");
                     current_plan = ceo.create_plan(&replan_problem).await?;
@@ -880,13 +1050,24 @@ async fn run_pipeline(
                     }
                 }
             }
-            VerificationResult::Regressed { original_fixed, new_issue, .. } => {
+            VerificationResult::Regressed {
+                original_fixed,
+                new_issue,
+                ..
+            } => {
                 tracing::warn!(round, "Regression detected!");
                 if !cli.json {
-                    println!("{}", formatter.format_progress("Verifier",
-                        &format!("REGRESSED — fixed: {}, but caused: {}",
-                            &original_fixed[..original_fixed.len().min(50)],
-                            &new_issue[..new_issue.len().min(50)])));
+                    println!(
+                        "{}",
+                        formatter.format_progress(
+                            "Verifier",
+                            &format!(
+                                "REGRESSED — fixed: {}, but caused: {}",
+                                &original_fixed[..original_fixed.len().min(50)],
+                                &new_issue[..new_issue.len().min(50)]
+                            )
+                        )
+                    );
                 }
                 if round < cli.max_rounds {
                     let replan_problem = format!(
@@ -913,7 +1094,10 @@ async fn run_pipeline(
     if resolved {
         tracing::info!("CEO synthesizing final report...");
         let synthesis = ceo.synthesize(problem, &all_summaries).await?;
-        println!("{}", formatter.format_final_result(&synthesis, metrics.total_tokens()));
+        println!(
+            "{}",
+            formatter.format_final_result(&synthesis, metrics.total_tokens())
+        );
 
         if let Some(mem) = memory.as_ref() {
             let _ = mem.update_outcome(session_id, "resolved", 0);
@@ -924,13 +1108,20 @@ async fn run_pipeline(
             Ok(s) => s,
             Err(_) => "Unable to generate recommendations.".into(),
         };
-        let verifier_summary = rounds_info.last()
+        let verifier_summary = rounds_info
+            .last()
             .map(|(_, s)| s.clone())
             .unwrap_or_else(|| "No verification data".into());
 
-        println!("{}", formatter.format_escalation(
-            problem, &rounds_info, &verifier_summary, &ceo_recommendation,
-        ));
+        println!(
+            "{}",
+            formatter.format_escalation(
+                problem,
+                &rounds_info,
+                &verifier_summary,
+                &ceo_recommendation,
+            )
+        );
 
         if let Some(mem) = memory.as_ref() {
             let _ = mem.save_solution(&SolutionRecord {
@@ -962,9 +1153,11 @@ fn create_provider(
         "deepseek" => Arc::new(OpenAiClient::new_deepseek(config, model_override)?),
         "gemini" => Arc::new(GeminiClient::new(config, model_override)?),
         "local" => Arc::new(LocalClient::new(config, model_override)),
-        other => return Err(anyhow::anyhow!(
-            "Unknown provider: '{other}'. Use: claude, openai, deepseek, gemini, local"
-        )),
+        other => {
+            return Err(anyhow::anyhow!(
+                "Unknown provider: '{other}'. Use: claude, openai, deepseek, gemini, local"
+            ));
+        }
     };
     Ok(provider)
 }

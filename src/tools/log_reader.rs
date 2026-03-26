@@ -30,10 +30,13 @@ impl Tool for LogReaderTool {
     async fn execute(&self, params: &ToolParams, timeout: Duration) -> Result<ToolResult> {
         let start = Instant::now();
         let action = params.action.as_str();
-        let path = params.args.get("path").ok_or_else(|| AgentError::ToolExecutionError {
-            tool: "log_reader".into(),
-            message: "Missing 'path' argument".into(),
-        })?;
+        let path = params
+            .args
+            .get("path")
+            .ok_or_else(|| AgentError::ToolExecutionError {
+                tool: "log_reader".into(),
+                message: "Missing 'path' argument".into(),
+            })?;
 
         let result = tokio::time::timeout(timeout, async {
             match action {

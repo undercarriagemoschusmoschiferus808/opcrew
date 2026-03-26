@@ -106,12 +106,13 @@ impl Tool for ShellTool {
     }
 
     async fn execute(&self, params: &ToolParams, timeout: Duration) -> Result<ToolResult> {
-        let command = params.args.get("command").ok_or_else(|| {
-            AgentError::ToolExecutionError {
+        let command = params
+            .args
+            .get("command")
+            .ok_or_else(|| AgentError::ToolExecutionError {
                 tool: "shell".into(),
                 message: "Missing 'command' argument".into(),
-            }
-        })?;
+            })?;
 
         // Block shell composition
         if Self::has_composition(command) {
@@ -153,14 +154,19 @@ impl Tool for ShellTool {
 
         // Per-call timeout — use select! so we keep ownership of child for kill
         let result = tokio::time::timeout(timeout, async {
-            let status = child.wait().await.map_err(|e| AgentError::ToolExecutionError {
-                tool: "shell".into(),
-                message: format!("Wait failed: {e}"),
-            })?;
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| AgentError::ToolExecutionError {
+                    tool: "shell".into(),
+                    message: format!("Wait failed: {e}"),
+                })?;
 
             let stdout = if let Some(mut out) = child.stdout.take() {
                 let mut buf = Vec::new();
-                tokio::io::AsyncReadExt::read_to_end(&mut out, &mut buf).await.ok();
+                tokio::io::AsyncReadExt::read_to_end(&mut out, &mut buf)
+                    .await
+                    .ok();
                 String::from_utf8_lossy(&buf).to_string()
             } else {
                 String::new()
@@ -168,7 +174,9 @@ impl Tool for ShellTool {
 
             let stderr = if let Some(mut err) = child.stderr.take() {
                 let mut buf = Vec::new();
-                tokio::io::AsyncReadExt::read_to_end(&mut err, &mut buf).await.ok();
+                tokio::io::AsyncReadExt::read_to_end(&mut err, &mut buf)
+                    .await
+                    .ok();
                 String::from_utf8_lossy(&buf).to_string()
             } else {
                 String::new()
@@ -260,7 +268,10 @@ mod tests {
             action: "run".into(),
             args: HashMap::from([("command".into(), "echo hello".into())]),
         };
-        let result = tool.execute(&params, Duration::from_secs(10)).await.unwrap();
+        let result = tool
+            .execute(&params, Duration::from_secs(10))
+            .await
+            .unwrap();
         assert!(result.success);
         assert_eq!(result.output.trim(), "hello");
     }

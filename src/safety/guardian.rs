@@ -88,7 +88,9 @@ impl GuardianAgent {
         // Layer 4: Loop detection
         if self.approval_manager.track_request(agent_id, &command) {
             let decision = ReviewDecision::Blocked {
-                reason: format!("Agent {agent_role} appears stuck in a loop (3+ identical requests)"),
+                reason: format!(
+                    "Agent {agent_role} appears stuck in a loop (3+ identical requests)"
+                ),
             };
             self.log_decision(params, agent_id, agent_role, &decision);
             return Ok(decision);
@@ -99,14 +101,14 @@ impl GuardianAgent {
         self.log_decision(params, agent_id, agent_role, &ai_decision);
 
         // If AI says needs user approval, prompt the user
-        if let ReviewDecision::NeedsUserApproval { ref reason, ref risk_level } = ai_decision {
-            let approval = self.approval_manager.prompt_user(
-                agent_role,
-                &command,
-                binary,
-                reason,
-                risk_level,
-            );
+        if let ReviewDecision::NeedsUserApproval {
+            ref reason,
+            ref risk_level,
+        } = ai_decision
+        {
+            let approval = self
+                .approval_manager
+                .prompt_user(agent_role, &command, binary, reason, risk_level);
             match approval {
                 ApprovalResult::Approved | ApprovalResult::ApproveAllSimilar(_) => {
                     return Ok(ReviewDecision::Approved {
@@ -174,7 +176,9 @@ impl GuardianAgent {
              Respond with ONLY one line: SAFE|RISKY|BLOCKED followed by a brief reason.",
             params.tool_name,
             params.action,
-            self.audit_log.masker().mask_string(&format!("{:?}", params.args)),
+            self.audit_log
+                .masker()
+                .mask_string(&format!("{:?}", params.args)),
             agent_role,
             context,
         );

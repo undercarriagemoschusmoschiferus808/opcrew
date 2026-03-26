@@ -14,8 +14,13 @@ use crate::tools::traits::{Tool, ToolParams, ToolResult};
 
 /// Blocked patterns that bypass security controls.
 const BLOCKED_PATTERNS: &[&str] = &[
-    "bash -c", "sh -c", "/bin/bash -c", "/bin/sh -c",
-    "eval ", "exec sh", "exec bash",
+    "bash -c",
+    "sh -c",
+    "/bin/bash -c",
+    "/bin/sh -c",
+    "eval ",
+    "exec sh",
+    "exec bash",
 ];
 
 /// Read-only actions that can be auto-approved.
@@ -33,7 +38,11 @@ impl ServiceTool {
         graph: Arc<RwLock<Option<InfraGraph>>>,
         target: TargetHost,
     ) -> Self {
-        Self { client, graph, target }
+        Self {
+            client,
+            graph,
+            target,
+        }
     }
 
     /// Translate an intent to shell commands via LLM.
@@ -44,7 +53,8 @@ impl ServiceTool {
         args: &HashMap<String, String>,
     ) -> Result<Vec<String>> {
         let ctx = service.execution_context.to_prompt_string();
-        let args_str = args.iter()
+        let args_str = args
+            .iter()
             .map(|(k, v)| format!("{k}={v}"))
             .collect::<Vec<_>>()
             .join(", ");
@@ -62,12 +72,14 @@ impl ServiceTool {
             content: prompt,
         }];
 
-        let (response, _) = self.client
+        let (response, _) = self
+            .client
             .send_message(TRANSLATION_PROMPT, &messages)
             .await?;
 
         // Parse response: one command per line
-        let commands: Vec<String> = response.lines()
+        let commands: Vec<String> = response
+            .lines()
             .map(|l| l.trim().to_string())
             .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("ERROR"))
             .collect();
@@ -90,14 +102,18 @@ impl ServiceTool {
         // Validate: reject composition and bash -c bypass
         for cmd in &commands {
             if ShellTool::has_composition(cmd) {
-                return Err(AgentError::ShellComposition { command: cmd.clone() });
+                return Err(AgentError::ShellComposition {
+                    command: cmd.clone(),
+                });
             }
             let lower = cmd.to_lowercase();
             for pattern in BLOCKED_PATTERNS {
                 if lower.contains(pattern) {
                     return Err(AgentError::ToolExecutionError {
                         tool: "service".into(),
-                        message: format!("Blocked: command contains '{pattern}' which bypasses security controls"),
+                        message: format!(
+                            "Blocked: command contains '{pattern}' which bypasses security controls"
+                        ),
                     });
                 }
             }
@@ -119,13 +135,17 @@ impl ServiceTool {
 
 #[async_trait]
 impl Tool for ServiceTool {
-    fn name(&self) -> &str { "service" }
+    fn name(&self) -> &str {
+        "service"
+    }
 
     fn description(&self) -> &str {
         "Execute actions on services (logs, status, restart, edit_config) — auto-translates to the correct runtime (Docker, K8s, systemd, etc.)"
     }
 
-    fn is_remote_capable(&self) -> bool { true }
+    fn is_remote_capable(&self) -> bool {
+        true
+    }
 
     async fn execute(&self, params: &ToolParams, timeout: Duration) -> Result<ToolResult> {
         let start = std::time::Instant::now();
@@ -158,11 +178,13 @@ impl Tool for ServiceTool {
 
         for (i, cmd) in commands.iter().enumerate() {
             tracing::info!(step = i + 1, total = commands.len(), cmd = %cmd, "ServiceTool: executing");
-            eprintln!("  {} [{}] {} → {}",
+            eprintln!(
+                "  {} [{}] {} → {}",
                 colored::Colorize::cyan("⟐"),
                 colored::Colorize::dimmed(service_name.as_str()),
                 action,
-                colored::Colorize::dimmed(cmd.as_str()));
+                colored::Colorize::dimmed(cmd.as_str())
+            );
 
             let shell_params = ToolParams {
                 tool_name: "shell".into(),
@@ -179,8 +201,12 @@ impl Tool for ServiceTool {
                         outputs.push(format!("Step {} FAILED: {}\n{}", i + 1, cmd, error));
                         // Stop sequence on failure
                         return Ok(ToolResult::err(
-                            format!("Step {}/{} failed: {cmd}\n{error}\nCompleted steps:\n{}",
-                                i + 1, commands.len(), outputs.join("\n")),
+                            format!(
+                                "Step {}/{} failed: {cmd}\n{error}\nCompleted steps:\n{}",
+                                i + 1,
+                                commands.len(),
+                                outputs.join("\n")
+                            ),
                             start.elapsed().as_millis() as u64,
                         ));
                     }

@@ -40,7 +40,9 @@ impl LlmProvider for LocalClient {
         messages: &[ChatMessage],
         max_retries: u32,
     ) -> Result<(String, Usage)> {
-        self.inner.send_message_with_retries(system_prompt, messages, max_retries).await
+        self.inner
+            .send_message_with_retries(system_prompt, messages, max_retries)
+            .await
     }
 
     async fn send_message_stream(
@@ -49,7 +51,9 @@ impl LlmProvider for LocalClient {
         messages: &[ChatMessage],
         chunk_tx: mpsc::Sender<String>,
     ) -> Result<(String, Usage)> {
-        self.inner.send_message_stream(system_prompt, messages, chunk_tx).await
+        self.inner
+            .send_message_stream(system_prompt, messages, chunk_tx)
+            .await
     }
 
     fn provider_name(&self) -> &str {

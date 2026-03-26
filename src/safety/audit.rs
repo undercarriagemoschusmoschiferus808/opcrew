@@ -54,12 +54,7 @@ pub struct AuditLog {
 }
 
 impl AuditLog {
-    pub fn new(
-        path: PathBuf,
-        session_id: Uuid,
-        masker: SecretMasker,
-        max_size_mb: u64,
-    ) -> Self {
+    pub fn new(path: PathBuf, session_id: Uuid, masker: SecretMasker, max_size_mb: u64) -> Self {
         // Derive HMAC key from session_id (not cryptographic proof, but tamper detection)
         let hmac_key = format!("audit-{session_id}").into_bytes();
         Self {
@@ -103,8 +98,7 @@ impl AuditLog {
             .open(&self.path)
             .map_err(|e| AgentError::AuditError(format!("Open: {e}")))?;
 
-        writeln!(file, "{line}")
-            .map_err(|e| AgentError::AuditError(format!("Write: {e}")))?;
+        writeln!(file, "{line}").map_err(|e| AgentError::AuditError(format!("Write: {e}")))?;
         file.sync_all()
             .map_err(|e| AgentError::AuditError(format!("Fsync: {e}")))?;
 
@@ -185,8 +179,8 @@ impl AuditLog {
     }
 
     fn compute_hmac(&self, data: &str) -> String {
-        let mut mac = HmacSha256::new_from_slice(&self.hmac_key)
-            .expect("HMAC accepts any key length");
+        let mut mac =
+            HmacSha256::new_from_slice(&self.hmac_key).expect("HMAC accepts any key length");
         mac.update(data.as_bytes());
         hex::encode(mac.finalize().into_bytes())
     }
@@ -282,7 +276,10 @@ mod tests {
         log.log(entry).unwrap();
 
         // Append corrupted line
-        let mut file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
         writeln!(file, "{{corrupted json").unwrap();
 
         let entries = log.read_entries().unwrap();

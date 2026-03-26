@@ -36,11 +36,7 @@ pub async fn handle_infra_command(
             );
             for svc in graph.services.values() {
                 let port = svc.port.map(|p| format!(":{p}")).unwrap_or_default();
-                println!(
-                    "  {:<28} {:?}{port}",
-                    svc.name.bold(),
-                    svc.service_type
-                );
+                println!("  {:<28} {:?}{port}", svc.name.bold(), svc.service_type);
             }
             if !graph.dependencies.is_empty() {
                 println!("  Dependencies:");
@@ -61,7 +57,10 @@ pub async fn handle_infra_command(
             match InfraGraph::load_from_db(&conn)? {
                 Some(graph) => {
                     if *json {
-                        println!("{}", serde_json::to_string_pretty(&graph).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&graph).unwrap_or_default()
+                        );
                     } else {
                         print_graph(&graph);
                     }
@@ -78,10 +77,15 @@ pub async fn handle_infra_command(
             println!("{} Infrastructure graph cleared", "✓".green());
         }
         InfraAction::Add { host, user } => {
-            println!("Added host {}@{} (run `infra discover --host {}@{}` to scan)", user, host, user, host);
+            println!(
+                "Added host {}@{} (run `infra discover --host {}@{}` to scan)",
+                user, host, user, host
+            );
         }
         InfraAction::Update { service } => {
-            println!("Re-scanning service: {service} (not yet implemented — use `infra discover` for full rescan)");
+            println!(
+                "Re-scanning service: {service} (not yet implemented — use `infra discover` for full rescan)"
+            );
         }
     }
     Ok(())
@@ -92,8 +96,7 @@ fn print_graph(graph: &InfraGraph) {
     if graph.is_stale(24) {
         eprintln!(
             "{}",
-            "⚠ Infra graph is stale. Run `opcrew infra discover` to refresh."
-                .yellow()
+            "⚠ Infra graph is stale. Run `opcrew infra discover` to refresh.".yellow()
         );
     }
 

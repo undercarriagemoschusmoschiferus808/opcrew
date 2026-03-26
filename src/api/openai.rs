@@ -70,30 +70,50 @@ struct OpenAiUsage {
 
 impl OpenAiClient {
     pub fn new_openai(config: &Config, model_override: Option<String>) -> Result<Self> {
-        let api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| AgentError::ConfigError("OPENAI_API_KEY is required for --provider openai".into()))?;
+        let api_key = std::env::var("OPENAI_API_KEY").map_err(|_| {
+            AgentError::ConfigError("OPENAI_API_KEY is required for --provider openai".into())
+        })?;
         let model = model_override
             .or_else(|| std::env::var("OPENAI_MODEL").ok())
             .unwrap_or_else(|| "gpt-4o".into());
 
-        Ok(Self::build(api_key, "https://api.openai.com/v1/chat/completions".into(), model, config.max_tokens, "openai".into()))
+        Ok(Self::build(
+            api_key,
+            "https://api.openai.com/v1/chat/completions".into(),
+            model,
+            config.max_tokens,
+            "openai".into(),
+        ))
     }
 
     pub fn new_deepseek(config: &Config, model_override: Option<String>) -> Result<Self> {
-        let api_key = std::env::var("DEEPSEEK_API_KEY")
-            .map_err(|_| AgentError::ConfigError("DEEPSEEK_API_KEY is required for --provider deepseek".into()))?;
+        let api_key = std::env::var("DEEPSEEK_API_KEY").map_err(|_| {
+            AgentError::ConfigError("DEEPSEEK_API_KEY is required for --provider deepseek".into())
+        })?;
         let model = model_override
             .or_else(|| std::env::var("DEEPSEEK_MODEL").ok())
             .unwrap_or_else(|| "deepseek-chat".into());
 
-        Ok(Self::build(api_key, "https://api.deepseek.com/chat/completions".into(), model, config.max_tokens, "deepseek".into()))
+        Ok(Self::build(
+            api_key,
+            "https://api.deepseek.com/chat/completions".into(),
+            model,
+            config.max_tokens,
+            "deepseek".into(),
+        ))
     }
 
     pub fn new_local(base_url: String, model: String, max_tokens: u32) -> Self {
         Self::build(String::new(), base_url, model, max_tokens, "local".into())
     }
 
-    fn build(api_key: String, base_url: String, model: String, max_tokens: u32, provider: String) -> Self {
+    fn build(
+        api_key: String,
+        base_url: String,
+        model: String,
+        max_tokens: u32,
+        provider: String,
+    ) -> Self {
         let http = Client::builder()
             .timeout(Duration::from_secs(120))
             .build()
@@ -141,7 +161,8 @@ impl LlmProvider for OpenAiClient {
         system_prompt: &str,
         messages: &[ChatMessage],
     ) -> Result<(String, Usage)> {
-        self.send_message_with_retries(system_prompt, messages, 3).await
+        self.send_message_with_retries(system_prompt, messages, 3)
+            .await
     }
 
     async fn send_message_with_retries(
@@ -168,7 +189,8 @@ impl LlmProvider for OpenAiClient {
                 stream: None,
             };
 
-            let mut req = self.http
+            let mut req = self
+                .http
                 .post(&self.base_url)
                 .header("Content-Type", "application/json");
             if !self.api_key.is_empty() {
@@ -193,16 +215,18 @@ impl LlmProvider for OpenAiClient {
                 });
             }
 
-            let parsed: OpenAiResponse = serde_json::from_str(&body)
-                .map_err(AgentError::SerializationError)?;
+            let parsed: OpenAiResponse =
+                serde_json::from_str(&body).map_err(AgentError::SerializationError)?;
 
-            let text = parsed.choices
+            let text = parsed
+                .choices
                 .first()
                 .and_then(|c| c.message.as_ref())
                 .map(|m| m.content.clone())
                 .unwrap_or_default();
 
-            let usage = parsed.usage
+            let usage = parsed
+                .usage
                 .map(|u| Usage {
                     input_tokens: u.prompt_tokens,
                     output_tokens: u.completion_tokens,
@@ -234,7 +258,8 @@ impl LlmProvider for OpenAiClient {
             stream: Some(true),
         };
 
-        let mut req = self.http
+        let mut req = self
+            .http
             .post(&self.base_url)
             .header("Content-Type", "application/json");
         if !self.api_key.is_empty() {
@@ -267,7 +292,8 @@ impl LlmProvider for OpenAiClient {
                         if data == "[DONE]" {
                             continue;
                         }
-                        if let Some(content) = serde_json::from_str::<OpenAiResponse>(data).ok()
+                        if let Some(content) = serde_json::from_str::<OpenAiResponse>(data)
+                            .ok()
                             .and_then(|p| p.choices.into_iter().next())
                             .and_then(|c| c.delta)
                             .and_then(|d| d.content)

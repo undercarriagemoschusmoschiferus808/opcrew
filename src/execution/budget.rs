@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::error::{AgentError, Result};
 
@@ -33,7 +33,12 @@ impl TokenBudget {
 
     /// Reserve tokens BEFORE an API call. Returns error if budget exceeded.
     /// Uses atomic fetch_add — no TOCTOU window.
-    pub fn try_consume(&self, agent_id: &str, estimated_tokens: u32, is_internal: bool) -> Result<()> {
+    pub fn try_consume(
+        &self,
+        agent_id: &str,
+        estimated_tokens: u32,
+        is_internal: bool,
+    ) -> Result<()> {
         let limit = if is_internal {
             self.per_agent_limit // internal ops use full budget
         } else {
@@ -41,9 +46,12 @@ impl TokenBudget {
         };
 
         // Check session budget first
-        let prev_session = self.session_usage.fetch_add(estimated_tokens, Ordering::SeqCst);
+        let prev_session = self
+            .session_usage
+            .fetch_add(estimated_tokens, Ordering::SeqCst);
         if prev_session + estimated_tokens > self.session_limit {
-            self.session_usage.fetch_sub(estimated_tokens, Ordering::SeqCst);
+            self.session_usage
+                .fetch_sub(estimated_tokens, Ordering::SeqCst);
             return Err(AgentError::BudgetExceeded {
                 agent_role: "session".into(),
                 limit: self.session_limit,
@@ -56,7 +64,8 @@ impl TokenBudget {
             let prev = counter.fetch_add(estimated_tokens, Ordering::SeqCst);
             if prev + estimated_tokens > limit {
                 counter.fetch_sub(estimated_tokens, Ordering::SeqCst);
-                self.session_usage.fetch_sub(estimated_tokens, Ordering::SeqCst);
+                self.session_usage
+                    .fetch_sub(estimated_tokens, Ordering::SeqCst);
                 return Err(AgentError::BudgetExceeded {
                     agent_role: agent_id.into(),
                     limit,
@@ -74,7 +83,8 @@ impl TokenBudget {
         if diff > 0 {
             // Over-estimated: return tokens
             let return_amount = diff as u32;
-            self.session_usage.fetch_sub(return_amount, Ordering::SeqCst);
+            self.session_usage
+                .fetch_sub(return_amount, Ordering::SeqCst);
             let usage_map = self.agent_usage.read().unwrap();
             if let Some(counter) = usage_map.get(agent_id) {
                 counter.fetch_sub(return_amount, Ordering::SeqCst);
@@ -101,7 +111,8 @@ impl TokenBudget {
     pub fn remaining_for_agent(&self, agent_id: &str) -> u32 {
         let usage_map = self.agent_usage.read().unwrap();
         if let Some(counter) = usage_map.get(agent_id) {
-            self.per_agent_work_limit.saturating_sub(counter.load(Ordering::SeqCst))
+            self.per_agent_work_limit
+                .saturating_sub(counter.load(Ordering::SeqCst))
         } else {
             self.per_agent_work_limit
         }

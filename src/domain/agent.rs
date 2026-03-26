@@ -166,12 +166,12 @@ mod tests {
 
     #[test]
     fn agent_output_confidence_clamped() {
-        let output = AgentOutput::new(AgentId::new(), "test".into(), "content".into())
-            .with_confidence(1.5);
+        let output =
+            AgentOutput::new(AgentId::new(), "test".into(), "content".into()).with_confidence(1.5);
         assert_eq!(output.confidence, 1.0);
 
-        let output = AgentOutput::new(AgentId::new(), "test".into(), "content".into())
-            .with_confidence(-0.5);
+        let output =
+            AgentOutput::new(AgentId::new(), "test".into(), "content".into()).with_confidence(-0.5);
         assert_eq!(output.confidence, 0.0);
     }
 

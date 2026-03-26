@@ -1,7 +1,7 @@
 use serde_json::Value;
 
-use crate::api::types::{ChatMessage, MessageRole, Usage};
 use crate::api::provider::LlmProvider;
+use crate::api::types::{ChatMessage, MessageRole, Usage};
 use crate::error::{AgentError, Result};
 
 /// Validates a JSON string against a JSON schema, retrying with feedback on failure.
@@ -59,8 +59,9 @@ pub async fn validate_and_retry<T: serde::de::DeserializeOwned>(
 
         if errors.is_empty() {
             // Schema valid — deserialize into target type
-            let result: T = serde_json::from_value(value)
-                .map_err(|e| AgentError::SchemaValidation(format!("Deserialization failed: {e}")))?;
+            let result: T = serde_json::from_value(value).map_err(|e| {
+                AgentError::SchemaValidation(format!("Deserialization failed: {e}"))
+            })?;
             return Ok((result, total_usage));
         }
 

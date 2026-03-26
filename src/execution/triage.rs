@@ -69,9 +69,7 @@ pub async fn triage(
         content: prompt,
     }];
 
-    let (response, _) = client
-        .send_message(TRIAGE_SYSTEM_PROMPT, &messages)
-        .await?;
+    let (response, _) = client.send_message(TRIAGE_SYSTEM_PROMPT, &messages).await?;
 
     match TriageResult::parse(&response) {
         Some(result) => Ok(result),
