@@ -258,12 +258,12 @@ mod tests {
 
     #[test]
     fn topological_sort_linear_chain() {
-        let mut a = Task::new("A".into(), "".into(), "dev".into());
-        let mut b = Task::new("B".into(), "".into(), "dev".into());
+        let a = Task::new("A".into(), "".into(), "dev".into());
+        let b = Task::new("B".into(), "".into(), "dev".into());
         let c = Task::new("C".into(), "".into(), "dev".into());
 
-        b = b.with_depends_on(vec![a.id.clone()]);
-        let mut c = c.with_depends_on(vec![b.id.clone()]);
+        let b = b.with_depends_on(vec![a.id.clone()]);
+        let c = c.with_depends_on(vec![b.id.clone()]);
 
         let tasks = vec![a, b, c];
         let levels = topological_sort(&tasks).unwrap();
